@@ -953,17 +953,14 @@ def model_dir():
 
 
 def find_whisper_cli():
-    """找 whisper.cpp 的執行檔（Android 上由 termux-stt 提供預編譯版）。"""
-    import shutil
+    """找 whisper.cpp 的執行檔。Android 上由 android-setup.sh 從原始碼建置。
 
-    try:                                    # termux-stt 內附 ARM64 預編譯執行檔
-        import termux_stt
-        for name in ("whisper-cli", "main"):
-            p = os.path.join(os.path.dirname(termux_stt.__file__), "bin", name)
-            if os.path.exists(p):
-                return p
-    except Exception:
-        pass
+    注意：termux-stt 這個 pip 套件「不會」提供執行檔。它的 wheel 只有
+    0.1 MB、純 Python，裡面沒有 bin/ 目錄。先前這裡假設它內附 ARM64 預編譯
+    版，是錯的 —— 裝了也一樣找不到，手機上沒字幕的影片照樣失敗。
+    可靠的做法是在 Termux 裡建置 whisper.cpp，產物就在下面第二段的路徑。
+    """
+    import shutil
 
     for name in ("whisper-cli", "whisper-cpp", "whisper", "main"):
         p = shutil.which(name)
@@ -1015,8 +1012,10 @@ def engine_whispercpp(url, langs, log, model_size=None, low_data=True, info=None
     exe = find_whisper_cli()
     if not exe:
         raise RuntimeError(
-            "找不到 whisper.cpp 執行檔。\n"
-            "Android 請在 Termux 執行：pkg install ffmpeg && pip install termux-stt")
+            "找不到 whisper.cpp 執行檔，無法對沒有字幕的影片做 AI 聽寫。\n\n"
+            "Android 請在 Termux 重新執行安裝腳本：\n"
+            "    cd ~/transcript && git pull\n"
+            "    bash android/android-setup.sh")
 
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:

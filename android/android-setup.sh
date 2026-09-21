@@ -55,20 +55,52 @@ if ! python -c "import youtube_transcript_api, yt_dlp" >/dev/null 2>&1; then
 fi
 echo "      youtube-transcript-api 與 yt-dlp 已就緒"
 
-# --- 2b. 聽寫引擎 ---------------------------------------------------
-# Android 沒有 CTranslate2 的預編譯套件，所以 faster-whisper 用不了，
-# 手機端改走 whisper.cpp。termux-stt 提供 ARM64 的預編譯執行檔。
-# 少了這一步，手機上「沒有字幕的影片」會 100% 失敗，
-# 而且錯誤訊息只會說「找不到 whisper.cpp 執行檔」，看不出是安裝沒做完。
-echo "[3/6] 安裝 AI 聽寫引擎（沒有字幕的影片才會用到）…"
-pip install --quiet --upgrade termux-stt 2>/dev/null
-if python -c "import termux_stt" >/dev/null 2>&1; then
-    echo "      whisper.cpp（termux-stt）已就緒"
+# --- 3. AI 聽寫引擎（whisper.cpp）--------------------------------
+# Android 沒有 CTranslate2 的預編譯套件，用不了電腦版的 faster-whisper，
+# 所以手機端走 whisper.cpp。
+#
+# 注意：pip 的 termux-stt「不會」提供執行檔 —— 它的 wheel 只有 0.1 MB、
+# 純 Python，裡面沒有 bin/ 目錄（已實際下載確認）。唯一可靠的方式是從原始碼
+# 建置，產物落在 ~/whisper.cpp/build/bin/whisper-cli，正好是 ytscript.py 的
+# find_whisper_cli() 會找的位置。
+#
+# 想跳過這一步（只處理有字幕的影片）：bash android-setup.sh --no-whisper
+WANT_WHISPER=1
+for arg in "$@"; do
+    [ "$arg" = "--no-whisper" ] && WANT_WHISPER=0
+done
+
+WHISPER_BIN="$HOME/whisper.cpp/build/bin/whisper-cli"
+WHISPER_REPO="https://github.com/ggml-org/whisper.cpp"
+
+if [ "$WANT_WHISPER" = "0" ]; then
+    echo "[3/6] 略過 AI 聽寫引擎（--no-whisper）"
+elif [ -x "$WHISPER_BIN" ]; then
+    echo "[3/6] AI 聽寫引擎已存在，略過建置"
 else
-    echo "      [警告] termux-stt 安裝失敗。"
-    echo "             有字幕的影片仍然完全正常，只有「沒字幕的影片」"
-    echo "             無法用 AI 聽寫。稍後可手動執行："
-    echo "               pip install termux-stt"
+    echo "[3/6] 建置 AI 聽寫引擎 whisper.cpp…"
+    echo "      會編譯原始碼，依手機效能約需 5～15 分鐘。"
+    echo "      只有「沒有字幕的影片」會用到它。"
+    pkg install -y git cmake build-essential >/dev/null 2>&1
+    rm -rf "$HOME/whisper.cpp"
+    if git clone --depth 1 "$WHISPER_REPO" "$HOME/whisper.cpp" >/dev/null 2>&1; then
+        cd "$HOME/whisper.cpp" || exit 1
+        cmake -B build -DCMAKE_BUILD_TYPE=Release >/dev/null 2>&1
+        cmake --build build -j"$(nproc)" --config Release >/dev/null 2>&1
+        cd "$HERE" 2>/dev/null || cd "$HOME"
+    fi
+    if [ -x "$WHISPER_BIN" ]; then
+        echo "      建置完成"
+    else
+        echo "      [警告] 建置失敗。"
+        echo "             有字幕的影片仍然完全正常，只有「沒字幕的影片」"
+        echo "             無法 AI 聽寫。想看失敗原因請手動逐行執行："
+        echo "               pkg install -y git cmake build-essential"
+        echo "               git clone --depth 1 $WHISPER_REPO ~/whisper.cpp"
+        echo "               cd ~/whisper.cpp"
+        echo "               cmake -B build -DCMAKE_BUILD_TYPE=Release"
+        echo "               cmake --build build -j2"
+    fi
 fi
 
 # --- 4. 找出並複製程式檔案 ------------------------------------------

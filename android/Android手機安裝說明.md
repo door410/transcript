@@ -5,10 +5,13 @@
 
 **唯一的差別在 AI 聽寫**（只有「沒有字幕的影片」才用得到）。
 Android 沒有 CTranslate2 的預編譯套件，所以用不了電腦版的 faster-whisper，
-手機端改走 whisper.cpp。安裝腳本會一併裝好 `ffmpeg` 與 `termux-stt` 兩個
-相依套件 —— 少任何一個，沒字幕的影片就會失敗，錯誤訊息是
-「找不到 whisper.cpp 執行檔」或「需要 ffmpeg 才能轉換音訊」。
-有字幕的影片不受影響，一律正常。
+手機端改走 whisper.cpp，而它在 Termux 上沒有現成的二進位檔，
+**安裝腳本會從原始碼編譯，約需 5～15 分鐘**（`[3/6]` 那一步）。
+腳本也會裝好 `ffmpeg`（轉 16kHz WAV 用）。
+這兩項少任何一個，沒字幕的影片就會失敗。有字幕的影片完全不受影響。
+
+> pip 上的 `termux-stt` 看起來像解法，但實際下載檢查過：wheel 只有 0.1 MB、
+> 純 Python，**沒有任何執行檔**，裝了也找不到 whisper.cpp。
 
 **為什麼可以這樣做？** YouTube 封鎖的是機房 IP（AWS／GCP／Azure），
 而你手機的 4G／5G／WiFi 是住宅等級 IP，YouTube 不擋。
