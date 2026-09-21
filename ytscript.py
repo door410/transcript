@@ -701,24 +701,60 @@ def load_whisper_with_progress(size, log):
         stop.set()
 
 
+def _nvidia_bin_dirs():
+    """pip 安裝的 CUDA 函式庫目錄，即 site-packages/nvidia/*/bin。
+
+    注意 nvidia 是 namespace package —— 它沒有 __init__.py，所以 __file__ 是
+    None，os.path.dirname(nvidia.__file__) 會丟 TypeError。必須改用 __path__。
+
+    先前這裡寫的正是 __file__，而且外層包著 except Exception，於是整個函式
+    靜默失效。症狀恰好就是它本來要解決的那件事：明明裝好了 cublas／cudnn，
+    CTranslate2 卻永遠找不到而退回 CPU，過程中不會有任何錯誤訊息。
+    """
+    dirs = []
+    try:
+        import nvidia
+    except ImportError:
+        return dirs
+    for base in getattr(nvidia, "__path__", []):
+        try:
+            for sub in os.listdir(base):
+                d = os.path.join(base, sub, "bin")
+                if os.path.isdir(d):
+                    dirs.append(d)
+        except OSError:
+            pass
+    return dirs
+
+
 def enable_cuda_dlls():
     """Windows 上讓程式找得到 pip 安裝的 CUDA 函式庫。
 
-    nvidia-cublas-cu12 / nvidia-cudnn-cu12 會把 DLL 放在 site-packages\\nvidia\\*\\bin，
-    但那些目錄不在系統 DLL 搜尋路徑裡，不手動加入的話 CTranslate2 會找不到，
-    結果就是明明裝了顯卡函式庫卻一直退回 CPU。
+    關鍵在於「加進 PATH」這一步，不能只用 os.add_dll_directory：
+    後者呼叫的是 AddDllDirectory，只對帶 LOAD_LIBRARY_SEARCH_USER_DIRS
+    旗標的載入生效。CTranslate2 是在 C++ 端用一般的 LoadLibrary 去開
+    cublas64_12.dll 的，那條路徑只看 exe 目錄、系統目錄與 PATH，
+    完全看不到 add_dll_directory 加的目錄。
+
+    實測：只做 add_dll_directory 時，即使 cublas64_12.dll 明明就在
+    site-packages/nvidia/cublas/bin 底下，仍然是
+    「RuntimeError: Library cublas64_12.dll is not found or cannot be loaded」。
+    加進 PATH 之後就正常了。兩個都做，其他載入方式也能受益。
     """
     if sys.platform != "win32":
         return
-    try:
-        import nvidia
-        base = os.path.dirname(nvidia.__file__)
-        for sub in os.listdir(base):
-            d = os.path.join(base, sub, "bin")
-            if os.path.isdir(d):
-                os.add_dll_directory(d)
-    except Exception:
-        pass
+    dirs = _nvidia_bin_dirs()
+    if not dirs:
+        return
+    for d in dirs:
+        try:
+            os.add_dll_directory(d)
+        except OSError:
+            pass
+    current = os.environ.get("PATH", "")
+    missing = [d for d in dirs if d not in current]
+    if missing:
+        os.environ["PATH"] = os.pathsep.join(missing + [current])
 
 
 def _import_whisper_first():
@@ -755,16 +791,12 @@ def _cuda_libs_present():
     """
     if sys.platform != "win32":
         return True                 # 其他平台交給 ctranslate2 自己判斷
-    try:
-        import nvidia
-        base = os.path.dirname(nvidia.__file__)
-        for sub in os.listdir(base):
-            d = os.path.join(base, sub, "bin")
-            if os.path.isdir(d) and any(f.lower().startswith("cublas64_")
-                                        for f in os.listdir(d)):
+    for d in _nvidia_bin_dirs():
+        try:
+            if any(f.lower().startswith("cublas64_") for f in os.listdir(d)):
                 return True
-    except Exception:
-        pass
+        except OSError:
+            pass
     for p in os.environ.get("PATH", "").split(os.pathsep):
         if p.strip() and os.path.exists(os.path.join(p, "cublas64_12.dll")):
             return True
