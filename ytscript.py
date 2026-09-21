@@ -728,6 +728,9 @@ def _nvidia_bin_dirs():
     return dirs
 
 
+_CUDA_DLLS_READY = False
+
+
 def enable_cuda_dlls():
     """Windows 上讓程式找得到 pip 安裝的 CUDA 函式庫。
 
@@ -742,11 +745,14 @@ def enable_cuda_dlls():
     「RuntimeError: Library cublas64_12.dll is not found or cannot be loaded」。
     加進 PATH 之後就正常了。兩個都做，其他載入方式也能受益。
     """
-    if sys.platform != "win32":
+    global _CUDA_DLLS_READY
+    if sys.platform != "win32" or _CUDA_DLLS_READY:
         return
     dirs = _nvidia_bin_dirs()
     if not dirs:
         return
+    _CUDA_DLLS_READY = True     # 只做一次：pick_device 每次聽寫會呼叫好幾遍，
+                                # 重複掃目錄、重複 add_dll_directory 沒有意義
     for d in dirs:
         try:
             os.add_dll_directory(d)
@@ -898,8 +904,17 @@ def engine_whisper(url, langs, log, model_size=None, low_data=True, info=None,
         # 等於把英文影片硬指定成中文辨識，產出完全錯誤的結果。
         log("AI 聽寫中…（完全在本機運算，不會上傳任何資料）"
             + ("" if lang else "｜語言自動偵測"))
+        # beam_size 依模型調整，不是固定 5。實測（8 分 46 秒中文影片、GPU）：
+        #     small beam=5   70.2 秒   （基準）
+        #     small beam=1   50.4 秒   與基準相似度 87.8%
+        #     tiny  beam=5   28.5 秒   與基準相似度 76.5%
+        #     tiny  beam=1   16.2 秒   與基準相似度 74.0%
+        # 「準確」模式用 small：省 28% 時間卻換來 12% 的文字差異，不划算，維持 5。
+        # 「快速」模式用 tiny：省 43% 時間只多 2.5% 差異，而這個模式本來就是
+        # 拿品質換速度的，beam=1 正符合它的定位。
+        beam = 1 if model_size == "tiny" else 5
         segments, winfo = model.transcribe(
-            audio, beam_size=5, vad_filter=True, language=lang,
+            audio, beam_size=beam, vad_filter=True, language=lang,
             condition_on_previous_text=False)
 
         segs = []
@@ -1266,7 +1281,10 @@ def transcribe(url_or_id, opts=None, log=print):
     else:
         log("非 YouTube 連結，交給 yt-dlp 處理…")
 
+    # 取完結果立刻收掉。原本放在函式最尾端，中間任何一條 raise
+    # （例如「有字幕但抓不到」那道防呆）都會讓這兩個執行緒留著不收。
     info = info_future.result() if info_future else None
+    pool.shutdown(wait=False)
     if info is None and not segments:
         info = _safe(ytdlp_info, url)      # 備援引擎需要它，這時才補抓
 
@@ -1320,8 +1338,6 @@ def transcribe(url_or_id, opts=None, log=print):
                     break
             except Exception as e:
                 errors.append(f"{fn.__name__} {type(e).__name__}: {str(e)[:250]}")
-
-    pool.shutdown(wait=False)
 
     if not segments:
         if not opts.get("allow_whisper", True):
@@ -1484,12 +1500,44 @@ def cache_load(url):
     return None
 
 
+# 快取筆數上限。實測一部影片約 27 KB，100 筆等於最多約 2.7 MB。
+#
+# 刻意「不」做時間過期。快取真正的價值是省下重跑的成本：同一部影片再處理
+# 一次，有快取是 0 秒、0 流量；沒快取要重新下載音訊，再花數十秒到數分鐘
+# 聽寫。為了省下 27 KB 而丟掉這個，整體反而更耗電、更耗流量。
+# 這裡要防的是「無上限成長」，用固定筆數的 LRU 就夠了。
+CACHE_MAX_FILES = 100
+
+
+def _trim_cache():
+    """只保留最近使用的 CACHE_MAX_FILES 筆，其餘按時間由舊到新刪除。"""
+    try:
+        d = cache_dir()
+        files = []
+        for name in os.listdir(d):
+            if not name.endswith(".json"):
+                continue
+            path = os.path.join(d, name)
+            try:
+                files.append((os.path.getmtime(path), path))
+            except OSError:
+                pass
+        for _mtime, path in sorted(files)[:-CACHE_MAX_FILES]:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+    except OSError:
+        pass
+
+
 def cache_save(url, meta, segments, sub_meta):
     try:
         with open(_cache_file(url), "w", encoding="utf-8") as f:
             json.dump({"url": url, "meta": meta, "segments": segments,
                        "sub_meta": sub_meta, "saved": time.time()},
                       f, ensure_ascii=False)
+        _trim_cache()
     except Exception:
         pass
 

@@ -266,7 +266,9 @@ function poll(id) {
       if (j.status === 'done')  { clearInterval(timer); done(j.result); }
       if (j.status === 'error') { clearInterval(timer); fail(j.error); }
     } catch (e) { clearInterval(timer); fail('與程式的連線中斷，請確認程式還在執行'); }
-  }, 600);
+    // 1.5 秒。原本是 600ms，等於轉錄期間每分鐘 100 次請求；
+    // 手機上這種頻率會一直喚醒網路與 CPU，而進度文字每秒更新一次就夠讀了。
+  }, 1500);
 }
 
 function fail(msg) {
@@ -387,7 +389,7 @@ $('#url').addEventListener('keydown', e => { if (e.key === 'Enter') start(); });
 // 這樣就不會每按一次桌面捷徑就多留一個永遠不關的背景程序。
 const ping = () => fetch('/api/ping').catch(() => {});
 ping();
-setInterval(ping, 20000);
+setInterval(ping, 30000);   // 伺服器閒置 5 分鐘才結束，30 秒一次綽綽有餘
 
 window.addEventListener('load', () => { if (window.innerWidth > 640) $('#url').focus(); });
 </script>
