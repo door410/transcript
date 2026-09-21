@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "yt-transcript",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-c", "import ytscript; ytscript.DEFAULT_PORT = 8899; ytscript.serve(open_browser=False)"],
+      "port": 8899
+    }
+  ]
+}

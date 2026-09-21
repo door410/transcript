@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# 建置產物：由 build/make_single_file.py 產生，不進版控
+dist/
+
+# 編輯器與系統
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

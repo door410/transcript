@@ -1,0 +1,14 @@
+# 預設交給 git 自動判斷，倉庫內一律存成 LF
+* text=auto eol=lf
+
+# Windows 啟動器必須維持 CRLF。
+# .bat 用 goto 標籤，LF 結尾在 Windows 上會出現詭異的跳轉行為；
+# cscript 讀 .vbs 也是照 ANSI 代碼頁逐行解析的。
+# 這兩種檔案同時還必須維持純 ASCII 內容 —— 原因見 README 的「給未來的我」。
+*.bat text eol=crlf
+*.vbs text eol=crlf
+
+# 二進位檔不要做任何行尾轉換
+*.png binary
+*.ico binary
+*.zip binary
