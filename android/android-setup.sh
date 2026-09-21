@@ -22,18 +22,26 @@ if [ ! -d "/data/data/com.termux" ]; then
 fi
 
 # --- 2. 安裝系統套件 ------------------------------------------------
-echo "[1/5] 安裝 Python（首次約需 2～3 分鐘）…"
+echo "[1/6] 安裝系統套件（首次約需 3～5 分鐘）…"
 pkg update -y >/dev/null 2>&1
-pkg install -y python termux-api unzip >/dev/null 2>&1
+# ffmpeg 是必要的，不是可選的：手機端的 AI 聽寫走 whisper.cpp，
+# 而它只吃 16kHz 單聲道 WAV，要靠 ffmpeg 轉檔。
+pkg install -y python termux-api unzip ffmpeg >/dev/null 2>&1
 
 if ! command -v python >/dev/null 2>&1; then
     echo "  [錯誤] Python 安裝失敗。請確認網路連線後重試。"
     exit 1
 fi
 echo "      Python $(python --version 2>&1 | awk '{print $2}') 已就緒"
+if command -v ffmpeg >/dev/null 2>&1; then
+    echo "      ffmpeg 已就緒"
+else
+    echo "      [警告] ffmpeg 安裝失敗 —— 沒有字幕的影片將無法聽寫。"
+    echo "             稍後可手動執行：pkg install ffmpeg"
+fi
 
 # --- 3. 安裝 Python 套件 --------------------------------------------
-echo "[2/5] 安裝必要套件…"
+echo "[2/6] 安裝必要套件…"
 pip install --quiet --upgrade pip >/dev/null 2>&1
 pip install --quiet --upgrade youtube-transcript-api yt-dlp
 if ! python -c "import youtube_transcript_api, yt_dlp" >/dev/null 2>&1; then
@@ -43,8 +51,24 @@ if ! python -c "import youtube_transcript_api, yt_dlp" >/dev/null 2>&1; then
 fi
 echo "      youtube-transcript-api 與 yt-dlp 已就緒"
 
+# --- 2b. 聽寫引擎 ---------------------------------------------------
+# Android 沒有 CTranslate2 的預編譯套件，所以 faster-whisper 用不了，
+# 手機端改走 whisper.cpp。termux-stt 提供 ARM64 的預編譯執行檔。
+# 少了這一步，手機上「沒有字幕的影片」會 100% 失敗，
+# 而且錯誤訊息只會說「找不到 whisper.cpp 執行檔」，看不出是安裝沒做完。
+echo "[3/6] 安裝 AI 聽寫引擎（沒有字幕的影片才會用到）…"
+pip install --quiet --upgrade termux-stt 2>/dev/null
+if python -c "import termux_stt" >/dev/null 2>&1; then
+    echo "      whisper.cpp（termux-stt）已就緒"
+else
+    echo "      [警告] termux-stt 安裝失敗。"
+    echo "             有字幕的影片仍然完全正常，只有「沒字幕的影片」"
+    echo "             無法用 AI 聽寫。稍後可手動執行："
+    echo "               pip install termux-stt"
+fi
+
 # --- 4. 找出並複製程式檔案 ------------------------------------------
-echo "[3/5] 尋找程式檔案…"
+echo "[4/6] 尋找程式檔案…"
 SRC=""
 HERE="$(cd "$(dirname "$0")" 2>/dev/null && pwd || echo .)"
 
@@ -99,7 +123,7 @@ cp "$SRC/ytscript.py" "$SRC/ui.html" "$SRC/tokens.css" "$APP_DIR/"
 for f in manifest.json icon-192.png icon-512.png icon-maskable.png; do
     [ -f "$SRC/$f" ] && cp "$SRC/$f" "$APP_DIR/"
 done
-echo "[4/5] 已安裝到 $APP_DIR"
+echo "[5/6] 已安裝到 $APP_DIR"
 
 # --- 5. 建立桌面捷徑（Termux:Widget）--------------------------------
 mkdir -p "$SHORTCUT_DIR"
@@ -122,7 +146,7 @@ termux-wake-unlock 2>/dev/null
 STARTER
 chmod +x "$APP_DIR/start.sh"
 
-echo "[5/5] 捷徑已建立"
+echo "[6/6] 捷徑已建立"
 echo
 echo "======================================================"
 echo "  安裝完成！"

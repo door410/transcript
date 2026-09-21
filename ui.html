@@ -69,16 +69,6 @@ details.opts[open] summary::before{transform:rotate(90deg)}
   .inrow .fi-input{text-align:left}
 }
 
-/* ---- 手機連線卡片與頁尾（自教室版移植，避免遺失區網分享功能） ---- */
-.phone{display:flex; align-items:center; gap:var(--space-4)}
-.phone__text{flex:1; min-width:0; display:grid; gap:2px}
-.phone__url{font:700 15px/1.4 var(--font-mono); color:var(--color-accent);
-  overflow:hidden; text-overflow:ellipsis}
-.foot{text-align:center; margin-top:var(--space-6); padding-bottom:var(--space-4)}
-.foot a{color:var(--color-text-muted); text-decoration:none;
-  border-bottom:1px dashed var(--color-border)}
-.foot a:hover{color:var(--color-danger); border-color:var(--color-danger)}
-@media (max-width:640px){ .phone{flex-direction:column; align-items:stretch} }
 </style>
 </head>
 <body>
@@ -180,21 +170,6 @@ details.opts[open] summary::before{transform:rotate(90deg)}
     </section>
 
   </div>
-
-  <!-- 手機連線：同一個 WiFi 下用手機瀏覽器開這個網址即可，不必在手機上裝任何東西 -->
-  <section class="fi-panel phone" id="phoneCard" hidden>
-    <span class="phone__text">
-      <span class="fi-label">📱 在手機上使用</span>
-      <span class="phone__url" id="phoneUrl">讀取中…</span>
-      <span class="fi-small fi-muted">手機連到同一個 WiFi，用瀏覽器開啟這個網址（這台電腦要保持開著）</span>
-    </span>
-    <button class="fi-btn fi-btn--sm" id="btnCopyUrl">複製網址</button>
-  </section>
-
-  <footer class="fi-small fi-muted foot">
-    全程在你自己的電腦上執行．無需帳號或 API key．無任何費用<br>
-    <a href="#" id="btnQuit">結束程式</a>
-  </footer>
 
 </div>
 
@@ -408,34 +383,11 @@ $('#btnOpen').addEventListener('click', () => data && window.open(data.meta.url,
 $('#go').addEventListener('click', start);
 $('#url').addEventListener('keydown', e => { if (e.key === 'Enter') start(); });
 
-// 手機網址：取代「請看黑視窗裡印的網址」那種做法
-let lanUrl = null;
-fetch('/api/info').then(r => r.json()).then(j => {
-  lanUrl = j.lan_url;
-  if (!lanUrl) return;                 // 偵測不到區網位址就不顯示這張卡
-  $('#phoneUrl').textContent = lanUrl;
-  $('#phoneCard').hidden = false;
-}).catch(() => {});
-
-$('#btnCopyUrl').addEventListener('click', async () => {
-  if (!lanUrl) return;
-  const b = $('#btnCopyUrl');
-  try { await navigator.clipboard.writeText(lanUrl); } catch {}
-  b.textContent = '已複製 ✓';
-  setTimeout(() => { b.textContent = '複製網址'; }, 1600);
-});
-
-$('#btnQuit').addEventListener('click', async e => {
-  e.preventDefault();
-  // 多行訊息用樣板字面值，不必處理跳脫字元
-  if (!confirm(`確定要結束程式嗎？
-之後要再使用，請重新點桌面上的圖示。`)) return;
-  try { await fetch('/api/quit', { method: 'POST' }); } catch {}
-  document.body.innerHTML =
-    '<div style="text-align:center;padding:90px 20px">' +
-    '<p class="fi-h3">程式已結束</p>' +
-    '<p class="fi-small fi-muted">可以關閉這個分頁了。要再次使用請點桌面上的圖示。</p></div>';
-});
+// 心跳：讓程式知道還有人在用。關掉分頁幾分鐘後伺服器會自動結束，
+// 這樣就不會每按一次桌面捷徑就多留一個永遠不關的背景程序。
+const ping = () => fetch('/api/ping').catch(() => {});
+ping();
+setInterval(ping, 20000);
 
 window.addEventListener('load', () => { if (window.innerWidth > 640) $('#url').focus(); });
 </script>

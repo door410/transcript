@@ -3,9 +3,10 @@
 YouTube 逐字稿工具 — 專為「餵給 AI 分析」設計
 =============================================
 
-架構：本機網頁應用程式
-  - 電腦：雙擊啟動，自動開啟瀏覽器
-  - 手機：同一個 WiFi 下，用手機瀏覽器開啟顯示的網址即可
+架構：本機網頁應用程式。電腦、筆電、手機各自安裝、各自獨立運行，
+      彼此不需要連線，也不做區網分享（伺服器只綁 127.0.0.1）。
+  - 電腦／筆電：雙擊啟動，自動開啟瀏覽器
+  - 手機：Termux 裡執行，見 android/
 
 輸出格式針對 AI 理解最佳化：
   - 段落級時間戳（約 45 秒一段）—— 可驗證、不浪費 token
@@ -878,35 +879,45 @@ def engine_whisper(url, langs, log, model_size=None, low_data=True, info=None,
             "請執行一次（免費、之後永久可用）：\n"
             "    pip install faster-whisper")
 
+    import shutil
+
     model_size = model_size or default_model_size()
     audio, tmpdir, size_mb, got = download_audio(url, log, low_data, info)
-    total = float((got or {}).get("duration") or (info or {}).get("duration") or 0)
 
-    model = load_whisper_with_progress(model_size, log)
+    # 一定要用 try/finally。先前只在成功路徑呼叫 rmtree，於是模型載入失敗、
+    # 聽寫中斷或使用者關掉頁面時，下載好的音訊就永遠留在暫存區。
+    # 實測光是開發過程的幾次失敗就累積了 4 個目錄、18 MB。
+    try:
+        total = float((got or {}).get("duration")
+                      or (info or {}).get("duration") or 0)
 
-    # 語言交給 Whisper 自動偵測（lang=None）。
-    # 先前的寫法是從語言偏好清單取第一個，而預設清單第一個永遠是 zh，
-    # 等於把英文影片硬指定成中文辨識，產出完全錯誤的結果。
-    log("AI 聽寫中…（完全在本機運算，不會上傳任何資料）"
-        + ("" if lang else "｜語言自動偵測"))
-    segments, winfo = model.transcribe(
-        audio, beam_size=5, vad_filter=True, language=lang,
-        condition_on_previous_text=False)
+        model = load_whisper_with_progress(model_size, log)
 
-    segs = []
-    t0 = time.time()
-    for s in segments:
-        t = (s.text or "").strip()
-        if t:
-            segs.append({"text": t, "start": s.start, "duration": s.end - s.start})
-        if total and len(segs) % 12 == 0 and segs:
-            pct = min(99, int(s.end / total * 100))
-            spent = time.time() - t0
-            eta = spent / max(s.end, 1) * max(total - s.end, 0)
-            log(f"AI 聽寫中… {pct}%（預計還要 {int(eta // 60)} 分 {int(eta % 60)} 秒）")
+        # 語言交給 Whisper 自動偵測（lang=None）。
+        # 先前的寫法是從語言偏好清單取第一個，而預設清單第一個永遠是 zh，
+        # 等於把英文影片硬指定成中文辨識，產出完全錯誤的結果。
+        log("AI 聽寫中…（完全在本機運算，不會上傳任何資料）"
+            + ("" if lang else "｜語言自動偵測"))
+        segments, winfo = model.transcribe(
+            audio, beam_size=5, vad_filter=True, language=lang,
+            condition_on_previous_text=False)
 
-    import shutil
-    shutil.rmtree(tmpdir, ignore_errors=True)
+        segs = []
+        t0 = time.time()
+        for s in segments:
+            t = (s.text or "").strip()
+            if t:
+                segs.append({"text": t, "start": s.start,
+                             "duration": s.end - s.start})
+            if total and len(segs) % 12 == 0 and segs:
+                pct = min(99, int(s.end / total * 100))
+                spent = time.time() - t0
+                eta = spent / max(s.end, 1) * max(total - s.end, 0)
+                log(f"AI 聽寫中… {pct}%"
+                    f"（預計還要 {int(eta // 60)} 分 {int(eta % 60)} 秒）")
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
     return segs, {"lang": winfo.language, "generated": True, "whisper": True,
                   "engine": f"faster-whisper {model_size}", "audio_mb": size_mb}
 
@@ -1042,6 +1053,21 @@ def engine_whispercpp(url, langs, log, model_size=None, low_data=True, info=None
         return got_segs
 
     segs = []
+    try:
+        segs = _whispercpp_run(transcribe_chunk, audio, total, log)
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)   # 失敗時也要清，理由同上
+
+    if not segs:
+        raise RuntimeError("AI 聽寫沒有產生任何文字（音訊可能是無聲的，"
+                           "或模型太大導致記憶體不足）")
+    return segs, {"lang": hint, "generated": True, "whisper": True,
+                  "engine": f"whisper.cpp {model_size}", "audio_mb": size_mb}
+
+
+def _whispercpp_run(transcribe_chunk, audio, total, log):
+    """長影片分段處理，短影片一次做完。抽出來只是為了讓上面的清理邏輯乾淨。"""
+    segs = []
     if total > CHUNK_SEC * 1.2:
         # 長影片分段處理：7 小時的影片若一次轉檔會產生約 770 MB 的暫存 WAV，
         # 手機很容易空間不足。分段後尖峰只有一段的大小（約 55 MB）。
@@ -1056,13 +1082,7 @@ def engine_whispercpp(url, langs, log, model_size=None, low_data=True, info=None
     else:
         log("AI 聽寫中…（完全離線運算）")
         segs = transcribe_chunk(audio, None, 0)
-
-    shutil.rmtree(tmpdir, ignore_errors=True)
-    if not segs:
-        raise RuntimeError("AI 聽寫沒有產生任何文字（音訊可能是無聲的，"
-                           "或模型太大導致記憶體不足）")
-    return segs, {"lang": hint, "generated": True, "whisper": True,
-                  "engine": f"whisper.cpp {model_size}", "audio_mb": size_mb}
+    return segs
 
 
 # ==========================================================================
@@ -1490,6 +1510,36 @@ JOBS_LOCK = threading.Lock()
 SERVER = None
 PORT = None
 
+# 前端每 20 秒敲一次 /api/ping。超過這個時間沒有任何頁面回報，
+# 而且沒有工作在跑，就自動結束。
+IDLE_EXIT_SEC = 300
+LAST_PING = None            # None = 還沒有任何頁面連上來過
+
+
+def _idle_watchdog():
+    """沒人看著就自動關掉。
+
+    這個工具是用 pythonw 啟動的，沒有主控台視窗可以關；介面上也不再放
+    「結束程式」。少了自動結束機制的話，每按一次桌面捷徑就會多一個永遠
+    不會消失的背景伺服器 —— 實際上真的累積過好幾個。
+
+    只有在「至少有一個頁面連上來過」之後才開始計時，避免瀏覽器還沒開起來
+    就先把自己關掉。有工作在跑時也不會關。
+    """
+    while True:
+        time.sleep(30)
+        if LAST_PING is None:
+            continue
+        if time.time() - LAST_PING < IDLE_EXIT_SEC:
+            continue
+        with JOBS_LOCK:
+            busy = any(v["status"] == "running" for v in JOBS.values())
+        if busy:
+            continue
+        if SERVER:
+            threading.Thread(target=SERVER.shutdown, daemon=True).start()
+        return
+
 
 def _dialog(title, msg, error=False):
     """用 pythonw 執行時沒有主控台，訊息要用小視窗顯示。"""
@@ -1562,10 +1612,14 @@ def _run_job(job_id, url, opts):
     try:
         result = transcribe(url, opts, log=log)
         with JOBS_LOCK:
-            JOBS[job_id].update(status="done", result=result)
+            j = JOBS.get(job_id)            # 可能已被清掉，不能直接 [] 取值
+            if j:
+                j.update(status="done", result=result)
     except Exception as e:
         with JOBS_LOCK:
-            JOBS[job_id].update(status="error", error=str(e))
+            j = JOBS.get(job_id)
+            if j:
+                j.update(status="error", error=str(e))
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1617,12 +1671,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(404, b"", STATIC_FILES[name])
             return self._send(200, body, STATIC_FILES[name])
 
-        if path == "/api/info":
-            ip = lan_ip()
-            return self._send(200, json.dumps({
-                "port": PORT,
-                "lan_url": f"http://{ip}:{PORT}" if ip else None,
-            }))
+        if path == "/api/ping":
+            global LAST_PING
+            LAST_PING = time.time()
+            return self._send(200, json.dumps({"ok": True}))
 
         return self._send(404, json.dumps({"error": "not found"}))
 
@@ -1651,7 +1703,10 @@ class Handler(BaseHTTPRequestHandler):
         with JOBS_LOCK:
             JOBS[jid] = {"status": "running", "log": [], "result": None,
                          "error": None, "t": time.time()}
-            for k in [k for k, v in JOBS.items() if time.time() - v["t"] > 3600]:
+            # 只清已結束的。先前不分狀態一律按建立時間清除，
+            # 超過一小時的長影片會在聽寫途中被砍掉，前端隨即收到「查無此工作」。
+            for k in [k for k, v in JOBS.items()
+                      if v["status"] != "running" and time.time() - v["t"] > 3600]:
                 JOBS.pop(k, None)
         threading.Thread(target=_run_job, args=(jid, url, opts), daemon=True).start()
         return self._send(200, json.dumps({"id": jid}))
@@ -1676,17 +1731,6 @@ def open_url(url):
         pass
 
 
-def lan_ip():
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-        s.close()
-        return ip
-    except Exception:
-        return None
-
-
 def free_port(start):
     for p in range(start, start + 30):
         with socket.socket() as s:
@@ -1703,24 +1747,24 @@ def serve(open_browser=True):
 
     PORT = port = free_port(DEFAULT_PORT)
     try:
-        SERVER = srv = ThreadingHTTPServer(("0.0.0.0", port), Handler)
+        # 只綁 127.0.0.1。這個工具是每台裝置各自安裝、各自使用，不做區網分享，
+        # 綁 0.0.0.0 等於把服務開放給同網段的所有人，沒有必要。
+        SERVER = srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     except OSError as e:
         _dialog("無法啟動", f"連接埠 {port} 無法使用：{e}", error=True)
         return
-    ip = lan_ip()
 
     print()
     print("  ┌─────────────────────────────────────────────┐")
     print("  │   YouTube 逐字稿工具  已啟動                │")
     print("  └─────────────────────────────────────────────┘")
     print()
-    print(f"   電腦上使用：  http://localhost:{port}")
-    if ip:
-        print(f"   手機上使用：  http://{ip}:{port}")
-        print("                （手機需連到同一個 WiFi）")
+    print(f"   在瀏覽器開啟：  http://localhost:{port}")
     print()
-    print("   關閉這個視窗就會結束程式。")
+    print("   關掉瀏覽器分頁幾分鐘後，程式會自動結束。")
     print()
+
+    threading.Thread(target=_idle_watchdog, daemon=True).start()
 
     if open_browser:
         threading.Timer(0.8, lambda: open_url(f"http://localhost:{port}")).start()
