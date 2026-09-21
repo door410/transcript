@@ -2,7 +2,11 @@
 # =====================================================================
 #  YouTube 逐字稿工具 — Android (Termux) 一鍵安裝
 #  用法：在 Termux 裡執行
-#        bash /sdcard/Download/android-setup.sh
+#        pkg install -y git
+#        git clone https://github.com/door410/transcript.git
+#        bash transcript/android/android-setup.sh
+#
+#  之後要更新：進 transcript 資料夾執行 git pull，再跑一次這個腳本。
 # =====================================================================
 set -u
 
@@ -90,8 +94,10 @@ for z in /sdcard/Download/手機安裝包.zip \
 done
 
 # 沒有 zip 時，才逐一尋找個別檔案
+# "$HERE/.." 要排最前面：這個腳本住在 android/ 子目錄，程式檔在上一層，
+# 所以 git clone 或解壓 GitHub 原始碼 zip 之後，正確的來源是父目錄。
 if [ -z "$SRC" ]; then
-for d in "$HERE" \
+for d in "$HERE/.." "$HERE" \
          /sdcard/Download /storage/emulated/0/Download \
          /sdcard/Documents /storage/emulated/0/Documents \
          /sdcard/Download/YouTube逐字稿工具 \
@@ -107,10 +113,14 @@ if [ -z "$SRC" ]; then
     echo
     echo "  [錯誤] 找不到安裝檔案。"
     echo
-    echo "  請先做這兩件事："
+    echo "  最簡單的做法（建議）："
+    echo "    pkg install -y git"
+    echo "    git clone https://github.com/door410/transcript.git"
+    echo "    bash transcript/android/android-setup.sh"
+    echo
+    echo "  或者用檔案傳輸的方式："
     echo "    1. 在 Termux 執行：termux-setup-storage   （然後按「允許」）"
-    echo "    2. 用 Google Drive App 把「手機安裝包.zip」"
-    echo "       下載到手機的「下載」資料夾"
+    echo "    2. 把「手機安裝包.zip」放到手機的「下載」資料夾"
     echo
     echo "  完成後重新執行這個腳本。"
     exit 1
