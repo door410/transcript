@@ -614,6 +614,93 @@ def eta_text(duration, model):
     return f"約 {int(sec // 60)} 分鐘"
 
 
+# 各模型的下載大小（MB）。用來在首次下載時給出有意義的百分比與預估時間。
+WHISPER_MODEL_MB = {"tiny": 75, "base": 142, "small": 466,
+                    "medium": 1530, "large-v2": 3090, "large-v3": 3090}
+
+
+def _hf_cache_dir():
+    try:
+        from huggingface_hub.constants import HF_HUB_CACHE
+        return HF_HUB_CACHE
+    except Exception:
+        return os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
+
+
+def _model_cache_root(size):
+    return os.path.join(_hf_cache_dir(), f"models--Systran--faster-whisper-{size}")
+
+
+def _dir_bytes(path):
+    total = 0
+    for dirpath, _dirs, files in os.walk(path):
+        for fn in files:
+            try:
+                total += os.path.getsize(os.path.join(dirpath, fn))
+            except OSError:
+                pass                    # 下載中的檔案隨時可能被改名，忽略即可
+    return total
+
+
+def whisper_model_cached(size):
+    """模型是否已完整存在本機。不連網、也不把模型載進記憶體。"""
+    snaps = os.path.join(_model_cache_root(size), "snapshots")
+    if not os.path.isdir(snaps):
+        return False
+    for _dirpath, _dirs, files in os.walk(snaps):
+        if "model.bin" in files:
+            return True
+    return False
+
+
+def _report_model_download(size, log, stop):
+    """模型下載期間每隔幾秒回報進度。
+
+    沒有這段的話，首次使用會有好幾分鐘、慢速網路上甚至幾十分鐘完全沒有任何
+    輸出。實測有人因此等了 25 分鐘，以為程式當掉 —— 而它其實只是在下載。
+    百分比是用快取目錄的大小去估的，不完全精確，但足以看出它在動。
+    """
+    root = _model_cache_root(size)
+    total_mb = WHISPER_MODEL_MB.get(size, 0)
+    t0 = time.time()
+    while not stop.wait(5):
+        mb = _dir_bytes(root) / (1024 * 1024)
+        if mb < 1:
+            continue
+        elapsed = time.time() - t0
+        rate = mb / elapsed if elapsed > 0 else 0
+        if total_mb:
+            pct = min(99, int(mb / total_mb * 100))
+            msg = f"下載 AI 模型 {size}… {pct}%（{mb:.0f}/{total_mb} MB"
+            left = (total_mb - mb) / rate if rate > 0.05 else 0
+            if 0 < left < 36000:
+                msg += f"．約還要 {int(left // 60)} 分 {int(left % 60)} 秒"
+            log(msg + "）")
+        else:
+            log(f"下載 AI 模型 {size}…（已取得 {mb:.0f} MB）")
+
+
+def load_whisper_with_progress(size, log):
+    """載入模型；若本機還沒有，下載期間持續回報進度。"""
+    if whisper_model_cached(size):
+        log(f"載入 AI 模型 {size}…")
+        return load_whisper_model(size, log)
+
+    mb = WHISPER_MODEL_MB.get(size)
+    log(f"首次使用 {size} 模型，需要先下載"
+        + (f"約 {mb} MB" if mb else "模型檔")
+        + "（只有這一次，之後永久離線可用）")
+
+    stop = threading.Event()
+    watcher = threading.Thread(target=_report_model_download,
+                               args=(size, log, stop), daemon=True)
+    watcher.start()
+    try:
+        return load_whisper_model(size, log)
+    finally:
+        stop.set()
+
+
 def enable_cuda_dlls():
     """Windows 上讓程式找得到 pip 安裝的 CUDA 函式庫。
 
@@ -653,6 +740,37 @@ def _import_whisper_first():
         pass            # 沒裝就算了，反正沒有 faster-whisper 也不會用到 GPU
 
 
+def _cuda_libs_present():
+    """cublas 函式庫到底在不在。
+
+    get_cuda_device_count() 只證明有顯卡驅動，不代表推論時載得到 cublas ——
+    CTranslate2 是延遲載入的，缺函式庫會等到真正 encode() 時才炸。
+    這件事不只影響能不能用 GPU：pick_device() 的結果還會決定模型大小
+    （見 default_model_size），判斷錯就會挑了 small 卻跑在 CPU 上，
+    正好是最慢的組合。
+
+    這裡直接看檔案在不在，不用 ctypes 去載。載入成功與否還牽涉 DLL 搜尋
+    路徑的細節（os.add_dll_directory 對 ctypes 的影響），查檔案單純得多，
+    而且真的載不起來時還有 _force_cuda_load() 這道保險。
+    """
+    if sys.platform != "win32":
+        return True                 # 其他平台交給 ctranslate2 自己判斷
+    try:
+        import nvidia
+        base = os.path.dirname(nvidia.__file__)
+        for sub in os.listdir(base):
+            d = os.path.join(base, sub, "bin")
+            if os.path.isdir(d) and any(f.lower().startswith("cublas64_")
+                                        for f in os.listdir(d)):
+                return True
+    except Exception:
+        pass
+    for p in os.environ.get("PATH", "").split(os.pathsep):
+        if p.strip() and os.path.exists(os.path.join(p, "cublas64_12.dll")):
+            return True
+    return False
+
+
 def pick_device():
     """有 NVIDIA 顯卡就用 GPU，否則用 CPU。回傳 (device, compute_type)。
 
@@ -664,7 +782,7 @@ def pick_device():
         _import_whisper_first()
         enable_cuda_dlls()
         import ctranslate2
-        if ctranslate2.get_cuda_device_count() > 0:
+        if ctranslate2.get_cuda_device_count() > 0 and _cuda_libs_present():
             return "cuda", "int8_float32"
     except Exception:
         pass
@@ -732,8 +850,7 @@ def engine_whisper(url, langs, log, model_size=None, low_data=True, info=None,
     audio, tmpdir, size_mb, got = download_audio(url, log, low_data, info)
     total = float((got or {}).get("duration") or (info or {}).get("duration") or 0)
 
-    log(f"載入 AI 模型 {model_size}…（首次會下載模型，之後永久離線可用）")
-    model = load_whisper_model(model_size, log)
+    model = load_whisper_with_progress(model_size, log)
 
     # 語言交給 Whisper 自動偵測（lang=None）。
     # 先前的寫法是從語言偏好清單取第一個，而預設清單第一個永遠是 zh，
