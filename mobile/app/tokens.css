@@ -1,0 +1,422 @@
+/* ============================================================
+   Flat Ink Panel — tokens.css  v2
+   單檔 drop-in。無建置步驟、無相依套件、任何框架都能用。
+
+   用法：
+     <link rel="stylesheet" href="flat-ink-ui/tokens.css">
+     或 CSS 中  @import "flat-ink-ui/tokens.css";
+     或 JS/TS 中  import "./flat-ink-ui/tokens.css";
+
+   深色模式：預設跟隨系統。要手動切換，在 <html> 上加
+     document.documentElement.dataset.theme = "dark" | "light"
+
+   命名規則：
+     CSS 變數 = --color-* / --space-* （語意名，跨專案通用）
+     元件類別 = .fi-*（加前綴避免與既有 .btn / .panel 衝突）
+   ============================================================ */
+
+/* ---------- 1. Tokens：淺色（預設） ---------- */
+:root{
+  /* 基底 — 這三層都可以安心放內文 */
+  --color-bg:            #FAF9F5;
+  --color-surface:       #FFFFFF;
+  --color-tint-warm:     #F5EBD2;
+  --color-tint-cool:     #E4F2F1;
+  --color-surface-ink:   #0D0D0D;
+  --color-surface-deep:  #1E3642;
+
+  /* 文字 */
+  --color-text:          #0D0D0D;
+  --color-text-muted:    #6B6558;
+  --color-text-invert:   #F5EBD2;
+
+  /* 線 */
+  --color-border:        #0D0D0D;
+  --color-border-soft:   #D8D2C4;
+
+  /* 動作 — 僅用於小色塊 */
+  --color-primary:       #66C6C6;
+  --color-primary-hover: #4FB5B5;
+  --color-accent:        #C33719;
+  --color-accent-hover:  #A82E19;
+  --color-spot:          #E5290F;
+
+  /* 狀態 — 僅用於圓點與圖示 */
+  --color-success:       #73912D;
+  --color-warning:       #B99119;
+  --color-danger:        #C33719;
+  --color-info:          #2D7D9B;
+
+  /* 狀態的淺色底 — 承載文字時用這組 */
+  --tint-success:        #E8EFD8;
+  --tint-warning:        #F7ECCB;
+  --tint-danger:         #F7DDD7;
+  --tint-info:           #DFEAF0;
+
+  /* 圖表分類色 — 小面積，可維持高彩度 */
+  --chart-1:#05AFAF; --chart-2:#C33719; --chart-3:#B99119; --chart-4:#2D7D9B;
+  --chart-5:#73912D; --chart-6:#EB550F; --chart-7:#1E3642; --chart-8:#C7BC94;
+
+  /* 間距 — 基準 8px，源自「溝縫9px : 線寬2px ≈ 4.5:1」 */
+  --space-1:4px;  --space-2:8px;  --space-3:12px; --space-4:16px; --space-5:24px;
+  --space-6:32px; --space-7:48px; --space-8:64px; --space-9:96px; --space-10:128px;
+
+  /* 邊框與圓角 */
+  --border-width:2px;
+  --border:2px solid var(--color-border);
+  --radius-none:0;
+  --radius-full:9999px;
+
+  /* 陰影 — blur 永遠為 0 */
+  --shadow-hard:4px 4px 0 var(--color-border);
+  --shadow-hard-sm:2px 2px 0 var(--color-border);
+
+  /* 動態 */
+  --ease:cubic-bezier(.2,0,0,1);
+  --dur-fast:120ms; --dur-base:180ms; --dur-slow:260ms;
+
+  /* 字族 */
+  --font-display:"Archivo Black","Noto Sans TC",system-ui,sans-serif;
+  --font-sans:"Archivo","Noto Sans TC",system-ui,-apple-system,sans-serif;
+  --font-mono:"Space Mono","JetBrains Mono",ui-monospace,monospace;
+
+  /* 容器 */
+  --container-sm:640px; --container-md:960px;
+  --container-lg:1200px; --container-xl:1440px;
+  --gutter-page:var(--space-5);
+}
+
+/* ---------- 2. Tokens：深色 ---------- */
+/* 系統偏好深色，且使用者未明確選擇淺色 */
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --color-bg:#0D0D0D;
+    --color-surface:#17150F;
+    --color-tint-warm:#241F16;
+    --color-tint-cool:#12262B;
+    --color-surface-ink:#000000;
+    --color-surface-deep:#1E3642;
+    --color-text:#F5EBD2;
+    --color-text-muted:#A8A08C;
+    --color-text-invert:#F5EBD2;
+    --color-border:#F5EBD2;
+    --color-border-soft:#4A4437;
+    --color-accent:#E1372D;
+    --tint-success:#26301A; --tint-warning:#302713;
+    --tint-danger:#331810;  --tint-info:#16262E;
+  }
+}
+/* 使用者明確選擇深色 */
+:root[data-theme="dark"]{
+  --color-bg:#0D0D0D;
+  --color-surface:#17150F;
+  --color-tint-warm:#241F16;
+  --color-tint-cool:#12262B;
+  --color-surface-ink:#000000;
+  --color-surface-deep:#1E3642;
+  --color-text:#F5EBD2;
+  --color-text-muted:#A8A08C;
+  --color-text-invert:#F5EBD2;
+  --color-border:#F5EBD2;
+  --color-border-soft:#4A4437;
+  --color-accent:#E1372D;
+  --tint-success:#26301A; --tint-warning:#302713;
+  --tint-danger:#331810;  --tint-info:#16262E;
+}
+
+/* ---------- 3. 基礎層 ---------- */
+*,*::before,*::after{box-sizing:border-box}
+[hidden]{display:none !important}   /* 必要：本系統大量用 grid/flex，會蓋掉 hidden */
+
+body{
+  margin:0;
+  background:var(--color-bg);
+  color:var(--color-text);
+  font:400 16px/1.6 var(--font-sans);
+  -webkit-font-smoothing:antialiased;
+}
+
+:where(h1,h2,h3,h4,h5,h6){margin:0; text-wrap:balance}
+:where(p,ul,ol){margin:0}
+:where(img,svg,video){max-width:100%}
+
+:where(a):focus-visible,
+:where(button,input,select,textarea,[tabindex]):focus-visible{
+  outline:3px solid var(--color-accent);
+  outline-offset:2px;
+}
+
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation:none !important; transition:none !important}
+}
+
+/* ---------- 4. 排版 ---------- */
+.fi-display{font:400 clamp(38px,7vw,61px)/1 var(--font-display); letter-spacing:-.03em}
+.fi-h1{font:800 39px/1.1 var(--font-sans); letter-spacing:-.02em}
+.fi-h2{font:700 31px/1.15 var(--font-sans); letter-spacing:-.01em}
+.fi-h3{font:700 25px/1.25 var(--font-sans)}
+.fi-h4{font:600 20px/1.3 var(--font-sans)}
+.fi-body{font:400 16px/1.6 var(--font-sans); max-width:68ch}
+.fi-small{font:400 14px/1.55 var(--font-sans)}
+.fi-label{
+  font:700 13px/1.2 var(--font-sans);
+  letter-spacing:.08em; text-transform:uppercase;
+}
+.fi-caption{font:400 12px/1.4 var(--font-mono); letter-spacing:.02em}
+.fi-muted{color:var(--color-text-muted)}
+.fi-num{font-family:var(--font-mono); font-variant-numeric:tabular-nums}
+
+/* ---------- 5. 分鏡格版面 ---------- */
+.fi-grid{
+  display:grid;
+  grid-template-columns:repeat(12,1fr);
+  gap:var(--space-2);
+  grid-auto-rows:minmax(88px,auto);
+}
+.fi-c1{grid-column:span 1}  .fi-c2{grid-column:span 2}
+.fi-c3{grid-column:span 3}  .fi-c4{grid-column:span 4}
+.fi-c5{grid-column:span 5}  .fi-c6{grid-column:span 6}
+.fi-c7{grid-column:span 7}  .fi-c8{grid-column:span 8}
+.fi-c9{grid-column:span 9}  .fi-c10{grid-column:span 10}
+.fi-c11{grid-column:span 11}.fi-c12{grid-column:1/-1}
+@media (max-width:760px){ .fi-grid > *{grid-column:1/-1} }
+
+.fi-container{
+  max-width:var(--container-lg);
+  margin-inline:auto;
+  padding-inline:var(--space-4);
+}
+
+/* ---------- 6. Panel ---------- */
+.fi-panel{
+  background:var(--color-surface);
+  border:var(--border);
+  border-radius:var(--radius-none);
+  padding:var(--space-5);
+  position:relative;
+  min-width:0;
+}
+.fi-panel--tint-warm{background:var(--color-tint-warm)}
+.fi-panel--tint-cool{background:var(--color-tint-cool)}
+.fi-panel--ink{background:var(--color-surface-ink); color:var(--color-text-invert)}
+.fi-panel--deep{background:var(--color-surface-deep); color:#F5EBD2}
+/* ⚠ 僅限大數字或 ≤4 字標題，不可放段落 */
+.fi-panel--teal{background:var(--color-primary); color:#0D0D0D}
+.fi-panel--flush{padding:0}
+
+.fi-panel__index{
+  position:absolute; top:0; left:0; z-index:1;
+  font:700 11px/1 var(--font-mono);
+  padding:6px 8px;
+  background:var(--color-border);
+  color:var(--color-bg);
+}
+
+/* ---------- 7. Button ---------- */
+.fi-btn{
+  display:inline-flex; align-items:center; justify-content:center; gap:8px;
+  font:700 13px/1 var(--font-sans);
+  letter-spacing:.08em; text-transform:uppercase;
+  padding:14px 24px;
+  border:var(--border);
+  border-radius:var(--radius-none);
+  background:var(--color-surface);
+  color:var(--color-text);
+  text-decoration:none;
+  cursor:pointer;
+  transition:transform var(--dur-fast) var(--ease),
+             box-shadow var(--dur-fast) var(--ease),
+             background-color var(--dur-fast) linear;
+}
+.fi-btn--primary{background:var(--color-primary); color:#0D0D0D; box-shadow:var(--shadow-hard-sm)}
+.fi-btn--accent{background:var(--color-accent); color:#FFFFFF}
+.fi-btn--ink{background:var(--color-surface-ink); color:var(--color-text-invert)}
+.fi-btn--ghost{background:transparent}
+.fi-btn--sm{padding:9px 14px; font-size:12px}
+.fi-btn:hover:not(:disabled){transform:translate(-2px,-2px); box-shadow:var(--shadow-hard)}
+.fi-btn:active:not(:disabled){transform:none; box-shadow:none}
+.fi-btn:disabled{background:var(--color-border-soft); color:var(--color-text-muted); box-shadow:none; cursor:not-allowed}
+
+/* ---------- 8. Form ---------- */
+.fi-field{display:flex; flex-direction:column; gap:var(--space-2)}
+.fi-input,.fi-select,.fi-textarea{
+  font:400 16px/1.5 var(--font-sans);
+  padding:12px 14px;
+  width:100%;
+  background:var(--color-surface);
+  border:var(--border);
+  border-radius:var(--radius-none);
+  color:var(--color-text);
+}
+.fi-input::placeholder,.fi-textarea::placeholder{color:var(--color-text-muted)}
+.fi-input:focus,.fi-select:focus,.fi-textarea:focus{
+  outline:none;
+  background:var(--color-tint-cool);
+  box-shadow:var(--shadow-hard-sm);
+}
+.fi-input[aria-invalid="true"],.fi-textarea[aria-invalid="true"]{
+  border-color:var(--color-danger);
+  background:var(--tint-danger);
+}
+.fi-error{font:700 12px/1.3 var(--font-sans); letter-spacing:.04em; color:var(--color-danger)}
+
+/* ---------- 9. Tag ---------- */
+.fi-tag{
+  display:inline-flex; align-items:center; gap:7px;
+  font:700 12px/1 var(--font-sans);
+  letter-spacing:.06em; text-transform:uppercase;
+  padding:7px 13px;
+  border:var(--border);
+  border-radius:var(--radius-full);
+  background:var(--color-surface);
+  color:var(--color-text);
+}
+.fi-tag__dot{width:9px; height:9px; border-radius:var(--radius-full); flex:none; background:currentColor}
+.fi-tag--success .fi-tag__dot{background:var(--color-success)}
+.fi-tag--warning .fi-tag__dot{background:var(--color-warning)}
+.fi-tag--danger  .fi-tag__dot{background:var(--color-danger)}
+.fi-tag--info    .fi-tag__dot{background:var(--color-info)}
+.fi-tag--filled.fi-tag--success{background:var(--tint-success)}
+.fi-tag--filled.fi-tag--warning{background:var(--tint-warning)}
+.fi-tag--filled.fi-tag--danger {background:var(--tint-danger)}
+.fi-tag--filled.fi-tag--info   {background:var(--tint-info)}
+/* 全頁最多一顆 —— 這就是「一點紅」 */
+.fi-tag--spot{background:var(--color-spot); color:#FFFFFF}
+.fi-tag--spot .fi-tag__dot{background:#FFFFFF}
+
+/* ---------- 10. Avatar ---------- */
+.fi-avatar{
+  width:40px; height:40px;
+  border:var(--border);
+  border-radius:var(--radius-full);
+  background:var(--color-surface);
+  color:var(--color-text);
+  display:grid; place-items:center;
+  font:700 14px/1 var(--font-sans);
+  object-fit:cover;
+  overflow:hidden;
+}
+
+/* ---------- 11. Nav ---------- */
+.fi-nav{
+  display:flex; align-items:stretch;
+  min-height:56px;
+  padding-inline:var(--space-4);
+  background:var(--color-surface-ink);
+  color:var(--color-text-invert);
+  border-bottom:var(--border);
+}
+.fi-nav__item{
+  display:flex; align-items:center;
+  padding-inline:var(--space-4);
+  font:700 12px/1 var(--font-sans);
+  letter-spacing:.08em; text-transform:uppercase;
+  color:var(--color-text-invert);
+  text-decoration:none;
+  transition:background-color var(--dur-fast) linear, color var(--dur-fast) linear;
+}
+.fi-nav__item[aria-current="page"]{background:var(--color-primary); color:#0D0D0D}
+.fi-nav__item:hover{background:var(--color-text-invert); color:#0D0D0D}
+
+/* ---------- 12. Table ---------- */
+.fi-tablewrap{overflow-x:auto; border:var(--border); background:var(--color-surface)}
+.fi-table{width:100%; border-collapse:collapse}
+.fi-table thead th{
+  background:var(--color-surface-ink);
+  color:var(--color-text-invert);
+  font:700 12px/1 var(--font-sans);
+  letter-spacing:.08em; text-transform:uppercase;
+  text-align:left;
+  padding:13px var(--space-4);
+  white-space:nowrap;
+}
+.fi-table td{
+  padding:13px var(--space-4);
+  border-top:var(--border-width) solid var(--color-border);
+  font-size:15px;
+}
+.fi-table tbody tr:hover{background:var(--color-tint-cool)}
+.fi-table td.fi-num{font-family:var(--font-mono); font-variant-numeric:tabular-nums; font-weight:700}
+
+/* ---------- 13. Modal ---------- */
+.fi-overlay{
+  position:fixed; inset:0; z-index:50;
+  background:rgba(13,13,13,.72);      /* 全系統唯一允許的半透明 */
+  display:grid; place-items:center;
+  padding:var(--space-4);
+}
+.fi-modal{
+  background:var(--color-surface);
+  color:var(--color-text);
+  border:var(--border);
+  border-radius:var(--radius-none);
+  box-shadow:var(--shadow-hard);
+  max-width:560px; width:100%;
+  padding:var(--space-6);
+}
+.fi-modal__header{
+  margin:calc(var(--space-6)*-1) calc(var(--space-6)*-1) var(--space-5);
+  padding:var(--space-4) var(--space-6);
+  background:var(--color-surface-ink);
+  color:var(--color-text-invert);
+  border-bottom:var(--border);
+}
+
+/* ---------- 14. 空狀態 ---------- */
+.fi-empty{
+  background:var(--color-surface);
+  border:var(--border);
+  padding:var(--space-9) var(--space-5);
+  text-align:center;
+}
+
+/* ============================================================
+   15. 本專案追加元件（YouTube 逐字稿工具）
+   沿用既有結構邏輯：2px 黑框 + 直角 + 硬陰影，一律 fi- 前綴。
+   ============================================================ */
+
+.fi-seg{display:flex; flex-wrap:wrap; border:var(--border); background:var(--color-surface)}
+.fi-seg__btn{
+  flex:1 1 0; min-width:110px;
+  font:700 13px/1 var(--font-sans); letter-spacing:.06em;
+  padding:14px 12px;
+  background:var(--color-surface); color:var(--color-text);
+  border:0; border-right:var(--border-width) solid var(--color-border);
+  cursor:pointer; transition:background-color var(--dur-fast) linear;
+}
+.fi-seg__btn:last-child{border-right:0}
+.fi-seg__btn:hover:not(.is-on){background:var(--color-tint-cool)}
+.fi-seg__btn.is-on{background:var(--color-primary); color:#0D0D0D}
+
+.fi-tabs{display:flex; border:var(--border); border-bottom:0; background:var(--color-surface)}
+.fi-tabs__btn{
+  font:700 13px/1 var(--font-sans); letter-spacing:.06em;
+  padding:13px 20px;
+  background:var(--color-tint-warm); color:var(--color-text);
+  border:0; border-right:var(--border-width) solid var(--color-border);
+  cursor:pointer; transition:background-color var(--dur-fast) linear;
+}
+.fi-tabs__btn.is-on{background:var(--color-surface)}
+
+.fi-out{
+  border:var(--border); background:var(--color-surface); color:var(--color-text);
+  padding:var(--space-4); margin:0;
+  max-height:440px; overflow:auto;
+  font:400 13px/1.75 var(--font-mono);
+  white-space:pre-wrap; word-break:break-word;
+}
+
+.fi-spinner{
+  width:16px; height:16px; flex:none;
+  border:var(--border-width) solid var(--color-border);
+  border-top-color:transparent;
+  animation:fi-spin 700ms linear infinite;
+}
+@keyframes fi-spin{to{transform:rotate(360deg)}}
+
+.fi-status{
+  display:flex; align-items:center; gap:var(--space-3);
+  border:var(--border); background:var(--color-tint-cool);
+  padding:var(--space-3) var(--space-4);
+  font:400 14px/1.5 var(--font-sans);
+}
