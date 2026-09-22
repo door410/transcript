@@ -270,6 +270,46 @@ FILLER_EN = re.compile(r"\b(um+|uh+|erm+|hmm+|mm+hmm)\b[,]?\s*", re.I)
 FILLER_ZH = re.compile(r"(?<![一-鿿])(呃+|嗯+|欸+|唉+)(?![一-鿿])")
 
 
+# 簡繁轉換設定。s2twp 連詞彙一起在地化（軟件→軟體、視頻→影片、程序→程式），
+# 對繁體使用者最自然；s2tw 只轉字不轉詞。實測 s2twp 明顯比較通順。
+OPENCC_PROFILE = "s2twp"
+
+
+def to_traditional(segments, log=None):
+    """把簡體輸出轉成繁體（台灣用詞）。只在偵測到中文時才呼叫。
+
+    Whisper 的中文輸出多半是簡體，bilibili 的內容尤其如此 —— 對繁體使用者
+    來說那等於整篇都是錯字。實測 opencc 套件只有 1.1 MB，轉換成本接近零。
+
+    （另一個做法是給 whisper 一段繁體的 initial_prompt。實測有效但不徹底：
+    整體慢 7%，而且標點完全沒改善。opencc 是確定性的，整篇都保證轉到。）
+
+    沒裝 opencc 就原樣回傳，不讓它變成硬性相依。
+    """
+    try:
+        from opencc import OpenCC
+    except ImportError:
+        if log:
+            log("未安裝簡繁轉換元件，輸出維持原樣（pip install opencc-python-reimplemented）")
+        return segments
+
+    for profile in (OPENCC_PROFILE, "s2tw", "s2t"):
+        try:
+            cc = OpenCC(profile)
+            break
+        except Exception:
+            cc = None
+    if cc is None:
+        return segments
+
+    for seg in segments:
+        try:
+            seg["text"] = cc.convert(seg["text"])
+        except Exception:
+            pass                        # 單段失敗就跳過，不要整篇壞掉
+    return segments
+
+
 def clean_segments(segments, aggressive=True):
     """移除雜訊標記、連續重複行、口頭禪。保守處理，避免刪掉有意義的內容。"""
     out = []
@@ -859,6 +899,40 @@ def load_whisper_model(size, log):
     return WhisperModel(size, device="cpu", compute_type="int8")
 
 
+def total_ram_mb():
+    """系統總記憶體（MB）。讀不到回 0，代表無法判斷。"""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            class _MS(ctypes.Structure):
+                _fields_ = [("dwLength", ctypes.c_ulong),
+                            ("dwMemoryLoad", ctypes.c_ulong),
+                            ("ullTotalPhys", ctypes.c_ulonglong),
+                            ("ullAvailPhys", ctypes.c_ulonglong),
+                            ("ullTotalPageFile", ctypes.c_ulonglong),
+                            ("ullAvailPageFile", ctypes.c_ulonglong),
+                            ("ullTotalVirtual", ctypes.c_ulonglong),
+                            ("ullAvailVirtual", ctypes.c_ulonglong),
+                            ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+
+            ms = _MS()
+            ms.dwLength = ctypes.sizeof(_MS)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(ms)):
+                return int(ms.ullTotalPhys // (1024 * 1024))
+        except Exception:
+            pass
+        return 0
+    try:                                    # Linux／Android
+        with io.open("/proc/meminfo", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("MemTotal:"):
+                    return int(line.split()[1]) // 1024
+    except Exception:
+        pass
+    return 0
+
+
 def default_model_size():
     """自動挑模型，不讓使用者選。
 
@@ -872,6 +946,12 @@ def default_model_size():
         return "tiny"                       # 手機 CPU 弱，只能用最小的
     if pick_device()[0] == "cuda":
         return "small"                      # 顯卡夠快，直接給最佳品質
+
+    # 純 CPU：small 跑起來大約要 1 GB 可用記憶體。記憶體吃緊的機器會嚴重
+    # 換頁，慢到不如直接用 tiny —— 這是為了低配筆電加的保險。
+    ram = total_ram_mb()
+    if ram and ram < 4096:
+        return "tiny"
     return "small" if (os.cpu_count() or 2) >= 4 else "tiny"
 
 
@@ -942,7 +1022,12 @@ def engine_whisper(url, langs, log, model_size=None, low_data=True, info=None,
 # ==========================================================================
 
 CHUNK_SEC = 1800          # 長影片每 30 分鐘一段處理，避免暫存 WAV 過大
-GGML_SIZES = {"tiny": 75, "base": 142, "small": 466, "medium": 1500, "large-v3": 3100}
+# whisper.cpp 一律用量化版：檔案小很多，品質差異在聽寫用途上可以忽略。
+# 實測下載大小：tiny 74 MB -> tiny-q5_1 31 MB（少 58%），
+# 在慢速網路上是 14 分鐘與 6 分鐘的差別。手機尤其有感。
+GGML_QUANT = {"tiny": "tiny-q5_1", "base": "base-q5_1", "small": "small-q5_1"}
+GGML_SIZES = {"tiny-q5_1": 31, "base-q5_1": 57, "small-q5_1": 181,
+              "tiny": 75, "base": 142, "small": 466, "medium": 1500, "large-v3": 3100}
 GGML_URL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-{}.bin"
 
 
@@ -953,7 +1038,7 @@ def model_dir():
 
 
 def find_whisper_cli():
-    """找 whisper.cpp 的執行檔。Android 上由 android-setup.sh 從原始碼建置。
+    """找 whisper.cpp 的執行檔。Android 上由 install.sh 從原始碼建置。
 
     注意：termux-stt 這個 pip 套件「不會」提供執行檔。它的 wheel 只有
     0.1 MB、純 Python，裡面沒有 bin/ 目錄。先前這裡假設它內附 ARM64 預編譯
@@ -978,6 +1063,7 @@ def find_whisper_cli():
 
 def ensure_ggml_model(size, log):
     """確保模型檔存在，不在就從 Hugging Face 下載（僅第一次，之後永久離線可用）。"""
+    size = GGML_QUANT.get(size, size)       # 有量化版就用量化版
     path = os.path.join(model_dir(), f"ggml-{size}.bin")
     if os.path.exists(path) and os.path.getsize(path) > 1_000_000:
         return path
@@ -1015,7 +1101,7 @@ def engine_whispercpp(url, langs, log, model_size=None, low_data=True, info=None
             "找不到 whisper.cpp 執行檔，無法對沒有字幕的影片做 AI 聽寫。\n\n"
             "Android 請在 Termux 重新執行安裝腳本：\n"
             "    cd ~/transcript && git pull\n"
-            "    bash android/android-setup.sh")
+            "    bash android/install.sh")
 
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
@@ -1343,6 +1429,10 @@ def transcribe(url_or_id, opts=None, log=print):
             errors.append("（「沒字幕時用 AI 聽寫」目前是關閉的，開啟後可處理無字幕影片）")
         raise RuntimeError("無法取得這部影片的逐字稿。\n\n" + "\n".join(errors))
 
+    # 中文一律轉繁體。放在快取之前，這樣重跑時不必再轉一次。
+    if str((sub_meta or {}).get("lang") or "").lower().startswith("zh"):
+        segments = to_traditional(segments, log)
+
     meta = collect_meta(url, info, vid)
     cache_save(url, meta, segments, sub_meta)
 
@@ -1629,7 +1719,8 @@ def ensure_deps():
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     try:
         subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade",
-                        "youtube-transcript-api", "yt-dlp"],
+                        "youtube-transcript-api", "yt-dlp",
+                        "opencc-python-reimplemented"],
                        creationflags=flags, capture_output=True, timeout=600)
     except Exception:
         pass

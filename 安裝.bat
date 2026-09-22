@@ -26,7 +26,7 @@ for /f "tokens=2" %%v in ('python --version 2^>^&1') do echo   Python %%v found
 
 echo.
 echo   [1/4] Installing core packages...
-python -m pip install --quiet --upgrade youtube-transcript-api yt-dlp
+python -m pip install --quiet --upgrade youtube-transcript-api yt-dlp opencc-python-reimplemented
 if errorlevel 1 goto failcore
 echo         done
 

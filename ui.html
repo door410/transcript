@@ -59,6 +59,15 @@ textarea.fi-out{
   display:block; width:100%; min-height:300px; resize:vertical;
   border-radius:0;
 }
+/* tokens.css 的全域 focus 樣式是 3px 紅色外框，套在整片文字框上太搶眼。
+   改用設計系統對輸入框既有的做法（底色微變），和 .fi-input:focus 一致。
+   先前試過「邊框變深」，但深色模式下邊框色本來就等於文字色，
+   等於完全沒有聚焦提示。底色變化在淺色與深色模式都看得出來。 */
+textarea.fi-out:focus,
+textarea.fi-out:focus-visible{
+  outline:none;
+  background:var(--color-tint-cool);
+}
 .outbar{
   display:flex; align-items:center; gap:var(--space-3);
   flex-wrap:wrap; margin-top:var(--space-2);
@@ -133,8 +142,8 @@ details.opts[open] summary::before{transform:rotate(90deg)}
             AI 聽寫速度（只有影片沒字幕時才用到）
           </span>
           <div class="fi-seg" id="segSpeed">
-            <button class="fi-seg__btn" data-v="fast">快速</button>
-            <button class="fi-seg__btn is-on" data-v="accurate">準確</button>
+            <button class="fi-seg__btn is-on" data-v="fast">快速</button>
+            <button class="fi-seg__btn" data-v="accurate">準確</button>
           </div>
           <p class="fi-small fi-muted opthint" id="speedHint"></p>
         </div>

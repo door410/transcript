@@ -65,11 +65,11 @@ termux-setup-storage
 跳出權限請求時按「**允許**」。接著：
 
 ```bash
-bash /sdcard/Download/android-setup.sh
+bash /sdcard/Download/install.sh
 ```
 
 > 安裝腳本本身也要先下載。如果懶得分兩次，可以直接把
-> `android-setup.sh` 和 `手機安裝包.zip` 一起下載。
+> `install.sh` 和 `手機安裝包.zip` 一起下載。
 
 腳本會自動解壓縮安裝包、安裝 Python 與所需套件、建立啟動捷徑。
 看到「**安裝完成！**」就成功了。
@@ -153,7 +153,7 @@ pip install --upgrade yt-dlp youtube-transcript-api
 手機重新從 Google Drive 下載 ytscript.py、ui.html、tokens.css，再跑一次：
 
 ```bash
-bash /sdcard/Download/android-setup.sh
+bash /sdcard/Download/install.sh
 ```
 
 它會覆蓋成新版，捷徑不用重做。

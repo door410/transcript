@@ -67,7 +67,7 @@ def build_zip():
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
         for name in ZIP_FILES:
             z.write(os.path.join(ROOT, name), name)
-        z.write(os.path.join(ROOT, "android", "android-setup.sh"), "android-setup.sh")
+        z.write(os.path.join(ROOT, "android", "install.sh"), "install.sh")
     return path
 
 

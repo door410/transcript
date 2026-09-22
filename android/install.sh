@@ -3,13 +3,17 @@
 #  YouTube 逐字稿工具 — 手機版全新安裝腳本
 #
 #  用法：在 Termux 執行
-#      bash install.sh
+#      pkg install -y git
+#      git clone https://github.com/door410/transcript.git
+#      bash transcript/android/install.sh
+#
 #  這支腳本會從零把整套環境裝好，可以重複執行（已完成的步驟會跳過）。
+#  之後要更新：cd ~/transcript && git pull && bash android/install.sh
 # =====================================================================
 # 刻意不使用 set -e / set -u：任何一步失敗都要繼續跑完並在最後報告。
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-APP="$HERE/app"
+APP="$(cd "$HERE/.." && pwd)"   # 程式檔在 repo 根目錄
 DEST="$HOME/ytscript"
 WH="$HOME/whisper.cpp"
 CLI="$WH/build/bin/whisper-cli"
@@ -34,8 +38,9 @@ say "  $(date '+%Y-%m-%d %H:%M')｜CPU ${NPROC} 核｜記憶體 ${RAM} MB"
 say "  完整記錄： $LOG"
 say "======================================================"
 
-if [ ! -d "$APP" ]; then
-  say "找不到 app/ 資料夾。請在解壓後的 mobile/ 目錄裡執行這支腳本。"
+if [ ! -f "$APP/ytscript.py" ]; then
+  say "在 $APP 找不到 ytscript.py。"
+  say "請確認是用 git clone 取得整個專案，並執行 android/install.sh。"
   exit 1
 fi
 
@@ -186,7 +191,21 @@ rm -f "$MD/args.conf" "$MD/model.conf" "$MD/lang.conf"
 say ""
 say "===== [7/8] 安裝程式檔與啟動捷徑 ====="
 mkdir -p "$DEST"
-cp -f "$APP"/* "$DEST"/ 2>>"$LOG"
+# 只複製執行需要的檔案。整個 repo 搬過去會把 .git、build/、文件一起帶上，
+# 手機上沒必要，也讓 ~/ytscript 變得難以辨認。
+for f in ytscript.py ui.html tokens.css manifest.json \
+         icon-192.png icon-512.png icon-maskable.png; do
+  [ -f "$APP/$f" ] && cp -f "$APP/$f" "$DEST/" 2>>"$LOG"
+done
+
+# 啟動腳本。termux-wake-lock 讓手機休眠時伺服器不會被系統殺掉。
+cat > "$DEST/start.sh" <<'STARTER'
+#!/data/data/com.termux/files/usr/bin/bash
+termux-wake-lock 2>/dev/null
+cd "$HOME/ytscript" || exit 1
+python ytscript.py
+termux-wake-unlock 2>/dev/null
+STARTER
 chmod +x "$DEST"/*.sh 2>/dev/null
 say "  程式已安裝到 $DEST"
 
