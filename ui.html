@@ -38,6 +38,32 @@ body{padding:0 var(--space-4) var(--space-8)}
 .inrow{display:flex; gap:var(--space-2); align-items:stretch}
 .inrow .fi-input{flex:1 1 auto; text-align:center}
 .inrow .fi-btn{flex:none; white-space:nowrap}
+
+/* 輸入框內的清空按鈕。留右側內距，免得長網址壓到按鈕底下 */
+.inwrap{position:relative; flex:1 1 auto; display:flex; min-width:0}
+.inwrap .fi-input{padding-right:40px}
+.inclear{
+  position:absolute; right:6px; top:50%; transform:translateY(-50%);
+  width:28px; height:28px; padding:0;
+  display:grid; place-items:center;
+  border:0; background:transparent; cursor:pointer; border-radius:50%;
+  color:var(--color-text-muted); font:700 15px/1 var(--font-sans);
+  transition:background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.inclear:hover{background:var(--color-tint-warm); color:var(--color-text)}
+.inclear:focus-visible{outline:2px solid var(--color-accent); outline-offset:1px}
+
+/* 可編輯的逐字稿輸出。用 textarea 而不是 contenteditable：
+   保證純文字、有原生復原與全選、貼上時不會帶進 HTML。 */
+textarea.fi-out{
+  display:block; width:100%; min-height:300px; resize:vertical;
+  border-radius:0;
+}
+.outbar{
+  display:flex; align-items:center; gap:var(--space-3);
+  flex-wrap:wrap; margin-top:var(--space-2);
+}
+.outbar p{margin:0; flex:1 1 220px}
 .lead{text-align:center; margin-bottom:var(--space-3)}
 
 /* ---- 選項 ---- */
@@ -90,8 +116,12 @@ details.opts[open] summary::before{transform:rotate(90deg)}
   <section class="fi-panel">
     <p class="fi-label lead">影片連結</p>
     <div class="inrow">
-      <input id="url" class="fi-input" type="url" inputmode="url" autocomplete="off"
-             spellcheck="false" placeholder="YouTube、Bilibili、Vimeo、X、TikTok…">
+      <span class="inwrap">
+        <input id="url" class="fi-input" type="url" inputmode="url" autocomplete="off"
+               spellcheck="false" placeholder="YouTube、Bilibili、Vimeo、X、TikTok…">
+        <button id="btnClear" class="inclear" type="button"
+                title="清空連結" aria-label="清空連結" hidden>✕</button>
+      </span>
       <button id="go" class="fi-btn fi-btn--primary">開始轉錄</button>
     </div>
 
@@ -159,7 +189,15 @@ details.opts[open] summary::before{transform:rotate(90deg)}
         <button class="fi-tabs__btn is-on" data-t="markdown">Markdown</button>
         <button class="fi-tabs__btn" data-t="plaintext">純文字</button>
       </div>
-      <pre class="fi-out" id="out"></pre>
+      <textarea class="fi-out" id="out" spellcheck="false"
+                aria-label="逐字稿內容（可直接編輯）"></textarea>
+      <div class="outbar">
+        <p class="fi-small fi-muted">
+          可以直接在上面編輯 —— 刪掉不要的段落、修掉錯字。
+          複製與下載都會用你改過的版本。
+        </p>
+        <button class="fi-btn fi-btn--sm" id="btnRestore" hidden>還原這個分頁</button>
+      </div>
     </section>
 
     <section class="fi-panel fi-panel--tint-warm">
@@ -176,6 +214,9 @@ details.opts[open] summary::before{transform:rotate(90deg)}
 <script>
 const $ = s => document.querySelector(s);
 let data = null, tab = 'markdown', timer = null;
+// 使用者在輸出框裡的修改，依分頁分開存。沒被改過的分頁不會有 key，
+// 所以切分頁不會互相覆蓋，也分得出「還原」按鈕該不該出現。
+let edits = {};
 
 // 分段選擇器
 document.querySelectorAll('.fi-seg').forEach(seg => {
@@ -278,6 +319,7 @@ function fail(msg) {
 
 function done(res) {
   data = res;
+  edits = {};        // 新的逐字稿，舊的編輯不該留著
   setStatus('', false);
   $('#go').disabled = false; $('#go').textContent = '開始轉錄';
 
@@ -310,7 +352,30 @@ function done(res) {
   $('#result').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-function render() { $('#out').textContent = data ? data[tab] : ''; }
+function render() {
+  $('#out').value = data ? (tab in edits ? edits[tab] : data[tab]) : '';
+  $('#btnRestore').hidden = !(tab in edits);
+}
+
+// 目前這個分頁該拿去複製／下載的文字：改過就用改過的
+function textOf(which) {
+  if (!data) return '';
+  return (which in edits) ? edits[which] : data[which];
+}
+
+$('#out').addEventListener('input', () => {
+  if (!data) return;
+  const v = $('#out').value;
+  if (v === data[tab]) delete edits[tab];   // 改回原樣就當作沒改過
+  else edits[tab] = v;
+  $('#btnRestore').hidden = !(tab in edits);
+});
+
+$('#btnRestore').addEventListener('click', () => {
+  delete edits[tab];
+  render();
+  $('#out').focus();
+});
 
 function renderParts(parts) {
   const box = $('#partsBox');
@@ -363,7 +428,7 @@ function download(text, ext) {
 
 $('#btnCopy').addEventListener('click', async () => {
   if (!data) return;
-  const text = data[tab];
+  const text = textOf(tab);
   const btn = $('#btnCopy'), old = btn.textContent;
   try {
     await navigator.clipboard.writeText(text);
@@ -377,10 +442,22 @@ $('#btnCopy').addEventListener('click', async () => {
   setTimeout(() => { btn.textContent = old; }, 1800);
 });
 
-$('#btnMd').addEventListener('click',  () => data && download(data.markdown, '.md'));
-$('#btnTxt').addEventListener('click', () => data && download(data.plaintext, '.txt'));
+$('#btnMd').addEventListener('click',  () => data && download(textOf('markdown'), '.md'));
+$('#btnTxt').addEventListener('click', () => data && download(textOf('plaintext'), '.txt'));
+// .srt 是帶時間軸的另一種結構，文字框的編輯無法對應過去，所以維持原始內容
 $('#btnSrt').addEventListener('click', () => data && download(data.srt, '.srt'));
 $('#btnOpen').addEventListener('click', () => data && window.open(data.meta.url, '_blank'));
+
+// 清空連結：只在有內容時出現，按完把游標留在輸入框，可以直接貼上下一個
+const urlBox = $('#url'), btnClear = $('#btnClear');
+const syncClear = () => { btnClear.hidden = !urlBox.value; };
+urlBox.addEventListener('input', syncClear);
+btnClear.addEventListener('click', () => {
+  urlBox.value = '';
+  syncClear();
+  urlBox.focus();
+});
+syncClear();
 
 $('#go').addEventListener('click', start);
 $('#url').addEventListener('keydown', e => { if (e.key === 'Enter') start(); });
