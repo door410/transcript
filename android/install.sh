@@ -8,13 +8,26 @@
 #      bash transcript/android/install.sh
 #
 #  這支腳本會從零把整套環境裝好，可以重複執行（已完成的步驟會跳過）。
-#  之後要更新：cd ~/transcript && git pull && bash android/install.sh
+#
+#  程式直接從這個 repo 資料夾執行（~/ytscript/start.sh 只是啟動器），
+#  所以之後要更新程式只需要：cd ~/transcript && git pull，再重新啟動。
+#  只有這支 install.sh 或 requirements/ 有改動時，才需要再跑一次。
 # =====================================================================
 # 刻意不使用 set -e / set -u：任何一步失敗都要繼續跑完並在最後報告。
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-APP="$(cd "$HERE/.." && pwd)"   # 程式檔在 repo 根目錄
-DEST="$HOME/ytscript"
+# 程式檔的位置有兩種：
+#   git clone 的 repo   -> install.sh 在 android/，程式在上一層（建議的方式）
+#   手機安裝包.zip 解壓 -> install.sh 和程式在同一層
+if [ -f "$HERE/ytscript.py" ]; then
+  APP="$HERE"
+else
+  APP="$(cd "$HERE/.." && pwd)"
+fi
+DEST="$HOME/ytscript"             # 只放啟動器 start.sh，程式本身留在 $APP
+# 固定 whisper.cpp 的版本。上游改命令列參數的話，ytscript.py 呼叫 whisper-cli
+# 的方式會失效。已確認 v1.9.4 有 -m -f -l -oj -of -np -nt 這些參數。
+WHISPER_TAG="v1.9.4"
 WH="$HOME/whisper.cpp"
 CLI="$WH/build/bin/whisper-cli"
 MD="$HOME/.cache/whisper-cpp"
@@ -39,10 +52,12 @@ say "  完整記錄： $LOG"
 say "======================================================"
 
 if [ ! -f "$APP/ytscript.py" ]; then
-  say "在 $APP 找不到 ytscript.py。"
-  say "請確認是用 git clone 取得整個專案，並執行 android/install.sh。"
+  say "在 $HERE 和它的上一層都找不到 ytscript.py。"
+  say "請用 git clone 取得整個專案，再執行："
+  say "    bash ~/transcript/android/install.sh"
   exit 1
 fi
+say "  程式位置：$APP"
 
 # ---------------------------------------------------------------------
 say ""
@@ -109,9 +124,15 @@ fi
 say ""
 say "===== [4/8] 安裝 Python 套件 ====="
 run pip install --upgrade pip
-for m in yt-dlp youtube-transcript-api opencc-python-reimplemented; do
-  run pip install "$m"
-done
+# 版本以 requirements/core.txt 為準（和電腦共用同一份）。yt-dlp 在裡面只設下限，
+# 所以 --upgrade 仍會拿到最新版；其他套件鎖在實測過的版本範圍。
+if [ -f "$APP/requirements/core.txt" ]; then
+  run pip install --upgrade -r "$APP/requirements/core.txt"
+else
+  for m in yt-dlp "youtube-transcript-api>=1.2.4,<2" opencc-python-reimplemented; do
+    run pip install --upgrade "$m"
+  done
+fi
 python -c "import yt_dlp" 2>/dev/null && say "  yt-dlp  : OK" || { say "  yt-dlp  : 失敗"; FAIL=1; }
 python -c "import opencc" 2>/dev/null && say "  opencc  : OK" || say "  opencc  : 失敗（輸出可能是簡體）"
 
@@ -121,8 +142,14 @@ say "===== [5/8] 建置 whisper.cpp（AI 聽寫引擎）====="
 if [ -x "$CLI" ] && "$CLI" --help >/dev/null 2>&1; then
   say "  已建置，跳過"
 else
-  [ -d "$WH/.git" ] || { rm -rf "$WH"; say "  取得原始碼…"; \
-    run git clone --depth 1 https://github.com/ggml-org/whisper.cpp "$WH"; }
+  if [ ! -d "$WH/.git" ]; then
+    rm -rf "$WH"
+    say "  取得原始碼（$WHISPER_TAG）…"
+    run git -c advice.detachedHead=false clone --depth 1 --branch "$WHISPER_TAG" \
+        https://github.com/ggml-org/whisper.cpp "$WH" \
+      || { say "  指定版本取得失敗，改用最新版"; rm -rf "$WH"; \
+           run git clone --depth 1 https://github.com/ggml-org/whisper.cpp "$WH"; }
+  fi
   say "  編譯中，5～15 分鐘，請不要關掉 Termux…"
   # -march 指定 ARMv8.2 的 dotprod／fp16 指令。開與不開的差距是好幾倍，
   # 這是手機上影響聽寫速度最大的單一因素。
@@ -191,23 +218,27 @@ rm -f "$MD/args.conf" "$MD/model.conf" "$MD/lang.conf"
 say ""
 say "===== [7/8] 安裝程式檔與啟動捷徑 ====="
 mkdir -p "$DEST"
-# 只複製執行需要的檔案。整個 repo 搬過去會把 .git、build/、文件一起帶上，
-# 手機上沒必要，也讓 ~/ytscript 變得難以辨認。
+# 以前這裡會把程式「複製」到 ~/ytscript 再從那裡執行。結果 git pull 之後
+# 手機仍在跑舊的副本，而且沒有任何提示 —— 很容易以為更新了其實沒有。
+# 現在改成直接從 $APP 執行：git pull 完重新啟動就是新版。
+# 舊版留下的副本一併清掉，免得有人改錯地方、或 selfcheck 誤判。
 for f in ytscript.py ui.html tokens.css manifest.json \
          icon-192.png icon-512.png icon-maskable.png; do
-  [ -f "$APP/$f" ] && cp -f "$APP/$f" "$DEST/" 2>>"$LOG"
+  rm -f "$DEST/$f"
 done
+rm -rf "$DEST/__pycache__"
 
 # 啟動腳本。termux-wake-lock 讓手機休眠時伺服器不會被系統殺掉。
-cat > "$DEST/start.sh" <<'STARTER'
+# 注意 STARTER 沒有加引號：$APP 會在「安裝當下」展開成實際路徑寫進檔案。
+cat > "$DEST/start.sh" <<STARTER
 #!/data/data/com.termux/files/usr/bin/bash
 termux-wake-lock 2>/dev/null
-cd "$HOME/ytscript" || exit 1
+cd "$APP" || { echo "找不到程式資料夾 $APP，請重跑 install.sh"; exit 1; }
 python ytscript.py
 termux-wake-unlock 2>/dev/null
 STARTER
 chmod +x "$DEST"/*.sh 2>/dev/null
-say "  程式已安裝到 $DEST"
+say "  啟動器：$DEST/start.sh（執行的是 $APP 裡的程式）"
 
 mkdir -p "$HOME/.shortcuts"
 cat > "$HOME/.shortcuts/YouTube-Transcript.sh" <<'EOF'
@@ -226,7 +257,8 @@ command -v ffmpeg >/dev/null 2>&1 && ffmpeg -version >/dev/null 2>&1 \
 [ -x "$CLI" ] && ok "whisper-cli" "OK" || { ok "whisper-cli" "失敗"; FAIL=1; }
 [ -s "$MD/ggml-tiny.bin" ] && ok "tiny 模型" "OK" || { ok "tiny 模型" "失敗"; FAIL=1; }
 python -c "import yt_dlp" 2>/dev/null && ok "yt-dlp" "OK" || { ok "yt-dlp" "失敗"; FAIL=1; }
-[ -f "$DEST/ytscript.py" ] && ok "程式檔" "OK" || { ok "程式檔" "失敗"; FAIL=1; }
+[ -f "$APP/ytscript.py" ] && grep -qF "cd \"$APP\"" "$DEST/start.sh" 2>/dev/null \
+  && ok "程式與啟動器" "OK" || { ok "程式與啟動器" "失敗"; FAIL=1; }
 
 # 真正跑一次：Python 產生音檔 -> ffmpeg 轉檔 -> whisper.cpp 聽寫
 if [ -x "$CLI" ] && [ -s "$MD/ggml-tiny.bin" ] && ffmpeg -version >/dev/null 2>&1; then
@@ -262,10 +294,11 @@ if [ "$FAIL" = "0" ]; then
   say "  啟動：  bash ~/ytscript/start.sh"
   say "  然後瀏覽器開  127.0.0.1:8756"
   say ""
-  say "  後續步驟請看 README.md 的「第三部分：桌面捷徑與 App 圖示」。"
+  say "  桌面圖示與「加入主畫面」：見 安裝指南.md 第 3 節。"
+  say "  之後更新程式：cd ~/transcript && git pull，再重新啟動即可。"
 else
   say "  有項目未通過（上面標示失敗的那幾行）。"
   say "  完整記錄在 $LOG"
-  say "  README.md 最後一節「疑難排解」有對照表。"
+  say "  對照表：docs/維護手冊/07_除錯.md 的「情境 E：手機版突然錯誤」。"
 fi
 say "======================================================"

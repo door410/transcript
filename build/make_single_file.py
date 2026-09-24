@@ -67,7 +67,10 @@ def build_zip():
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
         for name in ZIP_FILES:
             z.write(os.path.join(ROOT, name), name)
+        # install.sh 放在和 ytscript.py 同一層；它會自己判斷這種版面。
+        # 套件版本也要一起帶，否則手機會裝到未經測試的版本。
         z.write(os.path.join(ROOT, "android", "install.sh"), "install.sh")
+        z.write(os.path.join(ROOT, "requirements", "core.txt"), "requirements/core.txt")
     return path
 
 

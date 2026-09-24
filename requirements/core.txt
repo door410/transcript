@@ -1,0 +1,12 @@
+# Core packages - needed on ALL three devices (desktop, laptop, Android phone).
+# Used by: Windows setup .bat [1/4], ytscript.py ensure_deps(), android/install.sh [4/8].
+# Keep this file PURE ASCII (pip may read it with the Big5 codepage on Windows).
+#
+# yt-dlp is deliberately NOT pinned exactly: it has to chase YouTube changes,
+# so an old pinned version stops working within months. Only a minimum is set.
+# youtube-transcript-api is capped below 2.0: the 1.0 release already changed
+# its API once, and ytscript.py engine_transcript_api() is written for 1.x.
+# Last verified: 2026-09-24, desktop, tools/selfcheck.py --whisper all passed.
+yt-dlp>=2026.8.19
+youtube-transcript-api>=1.2.4,<2
+opencc-python-reimplemented==0.1.7

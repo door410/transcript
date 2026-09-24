@@ -1716,11 +1716,18 @@ def ensure_deps():
     except Exception:
         win = None
 
+    # 版本以 requirements/core.txt 為準（三台共用、和安裝腳本同一份），
+    # 這樣首次啟動自動安裝和手動跑安裝腳本會裝到同一組版本。
+    # 單檔版旁邊沒有這個檔案，才退回直接列套件名稱。
+    req = os.path.join(BASE_DIR, "requirements", "core.txt")
+    if os.path.exists(req):
+        pkgs = ["-r", req]
+    else:
+        pkgs = ["youtube-transcript-api>=1.2.4,<2", "yt-dlp",
+                "opencc-python-reimplemented"]
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     try:
-        subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade",
-                        "youtube-transcript-api", "yt-dlp",
-                        "opencc-python-reimplemented"],
+        subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade"] + pkgs,
                        creationflags=flags, capture_output=True, timeout=600)
     except Exception:
         pass

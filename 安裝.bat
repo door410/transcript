@@ -26,22 +26,35 @@ for /f "tokens=2" %%v in ('python --version 2^>^&1') do echo   Python %%v found
 
 echo.
 echo   [1/4] Installing core packages...
-python -m pip install --quiet --upgrade youtube-transcript-api yt-dlp opencc-python-reimplemented
+rem Versions come from requirements\core.txt (shared with the phone).
+rem yt-dlp only has a minimum there, so --upgrade still fetches the newest.
+python -m pip install --quiet --upgrade -r requirements\core.txt
 if errorlevel 1 goto failcore
 echo         done
 
 echo.
 echo   [2/4] Installing AI transcription engine (about 123 MB)...
 echo         Takes a few minutes. Please wait.
+rem Exact tested versions. They must match each other and the CUDA libs.
+python -m pip install --quiet -r requirements\whisper.txt
+if errorlevel 1 goto whisperlatest
+echo         done - tested versions
+goto gpucheck
+
+:whisperlatest
+echo         [WARN] Tested versions could not be installed
+echo                (different Python version?). Trying the latest...
 python -m pip install --quiet --upgrade faster-whisper
 if errorlevel 1 (
     echo         [WARN] faster-whisper failed. Videos WITH subtitles
     echo                still work. Retry later with:
-    echo                python -m pip install faster-whisper
+    echo                python -m pip install -r requirements\whisper.txt
 ) else (
-    echo         done
+    echo         done - UNTESTED latest versions. Please run:
+    echo                python tools\selfcheck.py --whisper
 )
 
+:gpucheck
 echo.
 echo   [3/4] Checking for NVIDIA graphics card...
 where nvidia-smi >nul 2>&1
@@ -51,11 +64,18 @@ if errorlevel 1 (
 )
 echo         NVIDIA GPU found. Installing CUDA libraries...
 echo         About 1 GB. Slow, but makes AI transcription ~5x faster.
+python -m pip install --quiet -r requirements\gpu.txt
+if errorlevel 1 goto gpulatest
+echo         done - GPU acceleration enabled, tested versions
+goto shortcut
+
+:gpulatest
+echo         [WARN] Tested CUDA versions failed. Trying the latest...
 python -m pip install --quiet nvidia-cublas-cu12 nvidia-cudnn-cu12
 if errorlevel 1 (
     echo         [WARN] CUDA libraries failed - will fall back to CPU.
 ) else (
-    echo         done - GPU acceleration enabled
+    echo         done - UNTESTED latest versions
 )
 
 :shortcut

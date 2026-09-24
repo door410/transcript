@@ -1,0 +1,8 @@
+# NVIDIA CUDA libraries - ONLY for machines with an NVIDIA graphics card.
+# Used by: Windows setup .bat [3/4] (skipped automatically when nvidia-smi is absent).
+# Keep this file PURE ASCII.
+#
+# ctranslate2 4.x needs CUDA 12 cuBLAS and cuDNN 9. These exact builds were
+# verified with requirements/whisper.txt on a GTX 1050 Ti, 2026-09-24.
+nvidia-cublas-cu12==12.9.2.10
+nvidia-cudnn-cu12==9.26.0.51

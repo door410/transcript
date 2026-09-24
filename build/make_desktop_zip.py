@@ -34,6 +34,11 @@ FILES = [
     "疑難排解.bat",
     "README.md",
     "安裝指南.md",
+    # 安裝.bat 從這三個檔案讀取實測過的套件版本，少了它們安裝會在第 1 步失敗
+    "requirements/core.txt",
+    "requirements/whisper.txt",
+    "requirements/gpu.txt",
+    "tools/selfcheck.py",
 ]
 
 READ_ME_FIRST = """\

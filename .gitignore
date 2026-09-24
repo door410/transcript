@@ -8,5 +8,6 @@ dist/
 # 編輯器與系統
 .vscode/
 .idea/
+.obsidian/
 Thumbs.db
 desktop.ini

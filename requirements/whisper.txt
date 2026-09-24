@@ -1,0 +1,15 @@
+# AI transcription for Windows (desktop and laptop). NOT used on Android.
+# Used by: Windows setup .bat [2/4].
+# Keep this file PURE ASCII.
+#
+# Pinned exactly: faster-whisper, ctranslate2 and their helpers must match each
+# other (and the CUDA libraries in gpu.txt). Upgrading one alone can silently
+# break GPU acceleration. Change these only together, then run
+#     python tools/selfcheck.py --whisper
+# Last verified: 2026-09-24, Windows 10, Python 3.13.9, GTX 1050 Ti.
+faster-whisper==1.2.1
+ctranslate2==4.8.2
+av==18.1.0
+onnxruntime==1.30.0
+tokenizers==0.23.2
+huggingface_hub==1.28.0

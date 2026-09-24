@@ -2,6 +2,9 @@
 
 > **要安裝嗎？** 三台裝置（電腦／筆電／Android）的完整步驟見
 > **[安裝指南.md](安裝指南.md)**。每台各自獨立安裝、獨立運行。
+>
+> **要維護、修改、除錯？** 從 **[docs/維護手冊/00_從這裡開始.md](docs/維護手冊/00_從這裡開始.md)** 開始。
+> 改完程式跑一次 `python tools/selfcheck.py`，全部通過再 commit。
 
 把知識型 YouTube 影片變成**為 AI 分析最佳化**的逐字稿，不用看完影片就能高效吸收重點。
 
@@ -33,7 +36,7 @@ Android 用 Termux 把整套程式裝進手機，**完全獨立運行，不需�
 
 > **沒有字幕的影片需要 AI 聽寫**，手機端走的是 whisper.cpp（Android 沒有
 > CTranslate2 的預編譯套件，用不了 faster-whisper）。安裝腳本會一併裝好
-> `ffmpeg` 與 `termux-stt`；這兩個少任何一個，沒字幕的影片就會失敗。
+> `ffmpeg`，並從原始碼編譯 whisper.cpp；這兩個少任何一個，沒字幕的影片就會失敗。
 
 ---
 
@@ -226,8 +229,10 @@ Whisper 一律把音訊重新取樣成 **16kHz 單聲道**，所以高位元率�
 
 ### 電腦端安裝
 
+`安裝.bat` 會自動裝好。要手動裝的話（版本是實測過的組合）：
+
 ```bash
-pip install faster-whisper
+python -m pip install -r requirements/whisper.txt
 ```
 
 **不需要另外裝 ffmpeg** —— faster-whisper 內含 PyAV 解碼器。
@@ -237,14 +242,12 @@ pip install faster-whisper
 ⚠️ **`faster-whisper` 在 Android 上裝不起來。**
 它依賴的 CTranslate2 沒有發布 Android ARM64 預編譯套件，pip 會試圖從原始碼編譯而失敗。
 
-手機要用這個：
+手機改用 **whisper.cpp**。`android/install.sh` 會裝好 `ffmpeg`，並從原始碼編譯
+whisper.cpp（固定 v1.9.4，約 5～15 分鐘）。
 
-```bash
-pkg install ffmpeg
-pip install termux-stt
-```
+（pip 上的 `termux-stt` 看起來像解法，但實際檢查過：它的 wheel 只有 0.1 MB、
+純 Python，**裡面沒有任何執行檔**，裝了也沒用。）
 
-`termux-stt` 內含**預編譯好的 ARM64 whisper.cpp 執行檔**，不需要自己編譯。
 程式會自動偵測環境：手機用 whisper.cpp，電腦用 faster-whisper。
 
 ### 模型大小怎麼選
@@ -287,8 +290,11 @@ Bilibili、X／Twitter、TikTok、Twitch、Dailymotion、Podcast RSS、各種新
 **突然抓不到了？** 先跑這行，九成問題會解決：
 
 ```bash
-python -m pip install --upgrade yt-dlp youtube-transcript-api
+python -m pip install --upgrade -r requirements/core.txt
 ```
+
+（會把 yt-dlp 更新到最新；youtube-transcript-api 只會升級到 1.x 的最新版，
+不會跳到可能不相容的 2.0。）
 
 **不要掛 VPN，不要放雲端主機。** YouTube 大量封鎖機房 IP（AWS／GCP／Azure），用家用網路反而最穩定。這也是為什麼這個工具設計成在你自己電腦上跑。
 
@@ -314,10 +320,17 @@ python -m pip install --upgrade yt-dlp youtube-transcript-api
 | `manifest.json`、`icon-*.png` | PWA 設定與圖示，手機可「加到主畫面」當獨立 App |
 | `icon.ico` | Windows 捷徑圖示 |
 | `android/` | Android（Termux）安裝腳本與說明 |
+| `requirements/` | **實測過的套件版本**。三個安裝管道（`安裝.bat`、首次啟動、`android/install.sh`）都從這裡讀。`core.txt` 三台共用；`whisper.txt`、`gpu.txt` 只給電腦 |
+| `tools/selfcheck.py` | 自我檢查。改完程式、更新套件、`git pull` 之後都跑一次 |
+| `docs/維護手冊/` | 維護、修改、除錯的完整手冊 |
 | `build/make_single_file.py` | 產生單檔版與手機安裝包，見下 |
 | `疑難排解.bat` | 只在出問題時用：會顯示主控台與完整錯誤訊息 |
 
 ### 單檔版與手機安裝包
+
+> 手機的正式安裝方式是 `git clone`（見 [安裝指南.md](安裝指南.md)），之後更新只要 `git pull`。
+> 這裡的安裝包只是沒有 git 時的備用方案：解壓縮後執行裡面的 `install.sh` 即可，
+> 但之後每次更新都要重新打包、重新傳。
 
 Android 上搬一堆檔案很麻煩，所以另外提供把所有資源內嵌進去的單一 `.py`。
 **不要手動編輯它** —— 它是產生出來的：
