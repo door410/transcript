@@ -1200,6 +1200,43 @@ def run_whisper(cmd, timeout_sec, log, label):
     return rc, "\n".join(tail)
 
 
+def _utf8_incomplete_tail(b):
+    """b 結尾若是一個還沒寫完的 UTF-8 多位元組字元，回傳那幾個位元組的長度，否則 0。"""
+    i = len(b) - 1
+    while i >= 0 and len(b) - i <= 4 and (b[i] & 0xC0) == 0x80:    # 往回跳過延續位元組
+        i -= 1
+    if i < 0 or b[i] < 0xC0:
+        return 0
+    need = 2 if b[i] < 0xE0 else 3 if b[i] < 0xF0 else 4
+    have = len(b) - i
+    return have if have < need else 0
+
+
+def read_whisper_json(path):
+    """讀 whisper-cli 的 -oj 輸出，回傳（段落列表, 偵測到的語言）。
+
+    不能直接用 utf-8 開檔：whisper 以「位元組片段」產生中文，輸出裡偶爾有不完整的
+    UTF-8，而 whisper-cli 寫 JSON 時原樣寫出，只要一個壞位元組整份就讀不進來。
+    實測兩種情況（2026-10-18，影片 8W9lyB6_kqo，tiny 模型）：
+      1. 一個字被切在相鄰兩段之間 —— 接回去就是完整的字
+      2. 模型吐出半個字就接到別的詞（"按\\xe9 mann"）—— 那半個字本來就是錯的，丟掉
+    做法：以 latin-1 讀（每個位元組對應一個字元，保證成功）→ 解析 JSON →
+    每段文字還原成原始位元組，跨段接回被切開的字，剩下殘缺的位元組丟掉。
+    strict=False：whisper-cli 不會跳脫換行等控制字元，嚴格模式會拒絕。
+    """
+    with open(path, "rb") as f:
+        data = json.loads(f.read().decode("latin-1"), strict=False)
+    items = data.get("transcription") or []
+    carry = b""
+    for item in items:
+        raw = carry + (item.get("text") or "").encode("latin-1")
+        cut = _utf8_incomplete_tail(raw)
+        carry = raw[len(raw) - cut:] if cut else b""
+        item["text"] = raw[:len(raw) - cut].decode("utf-8", "ignore")
+    lang = ((data.get("result") or {}).get("language") or "").encode("latin-1").decode("utf-8", "ignore")
+    return items, lang
+
+
 def engine_whispercpp(url, langs, log, model_size=None, low_data=True, info=None,
                       lang=None):
     import shutil
@@ -1261,16 +1298,20 @@ def engine_whispercpp(url, langs, log, model_size=None, low_data=True, info=None
 
         base_out = os.path.join(tmpdir, f"o{idx}")
         label = "AI 聽寫中" if offset is None else f"AI 聽寫中（第 {idx + 1} 段）"
-        # 逾時上限依音訊長度計算：準確模式在慢手機上約 0.2 倍速，留足 40 倍餘裕
+        # 逾時上限依音訊長度計算：準確模式在慢手機上約 0.2 倍速，留足 40 倍餘裕。
+        # 刻意不加 -nt：它會關掉時間戳解碼，結果每段的起點變成負數亂碼（段落時間戳全是
+        # 00:00）、每 30 秒才一段，而且實測更慢、夾雜更多英文亂詞（2026-10-18，tiny：
+        # 加 -nt 58 秒／英文詞 15 個；不加 39 秒／0 個）。
         rc, err = run_whisper([exe, "-m", state["model"], "-f", wav, "-l", hint,
-                               "-oj", "-of", base_out, "-np", "-nt"] + extra,
+                               "-oj", "-of", base_out, "-np"] + extra,
                               max(900, int(seconds * 40)), log, label)
         jp = base_out + ".json"
         got_segs = []
         if os.path.exists(jp):
-            with open(jp, encoding="utf-8") as f:
-                data = json.load(f)
-            for item in data.get("transcription", []):
+            items, detected = read_whisper_json(jp)
+            if detected:
+                state["lang"] = detected
+            for item in items:
                 txt = (item.get("text") or "").strip()
                 if not txt:
                     continue
@@ -1312,7 +1353,9 @@ def engine_whispercpp(url, langs, log, model_size=None, low_data=True, info=None
     if not segs:
         raise RuntimeError("AI 聽寫沒有產生任何文字（音訊可能是無聲的，"
                            "或模型太大導致記憶體不足）")
-    return segs, {"lang": hint, "generated": True, "whisper": True,
+    # 回報 whisper 實際偵測到的語言（例如 zh），而不是 "auto"：
+    # transcribe() 要看到 zh 才會做簡轉繁，回報 auto 的話中文會維持簡體。
+    return segs, {"lang": state.get("lang") or hint, "generated": True, "whisper": True,
                   "engine": f"whisper.cpp {state['size']}", "audio_mb": size_mb}
 
 
@@ -1563,8 +1606,9 @@ def transcribe(url_or_id, opts=None, log=print):
         if mb0:
             bits.append(f"下載約 {mb0:.1f} MB")
         log("｜".join(bits) + "（全程在本機運算）")
-        # Android 沒有 CTranslate2 預編譯套件，所以手機優先走 whisper.cpp
-        order = ([engine_whispercpp, engine_whisper] if IS_TERMUX
+        # Android 裝不了 faster-whisper（CTranslate2 沒有預編譯套件），手機只走 whisper.cpp。
+        # 以前失敗時還會再試 engine_whisper，結果錯誤訊息叫人去 pip install 一個裝不起來的套件。
+        order = ([engine_whispercpp] if IS_TERMUX
                  else [engine_whisper, engine_whispercpp])
         mdl = opts.get("whisper_model")
         low = opts.get("low_data", True)   # 實測證實無品質影響，一律啟用
@@ -1975,7 +2019,7 @@ class Handler(BaseHTTPRequestHandler):
             LAST_PING = time.time()
             # 介面靠這兩個欄位顯示對應裝置的「快速／準確」說明
             return self._send(200, json.dumps({
-                "ok": True, "phone": IS_TERMUX,
+                "ok": True, "phone": IS_TERMUX, "build": BUILD,
                 "accurate_model": phone_accurate_model() if IS_TERMUX else None}))
 
         return self._send(404, json.dumps({"error": "not found"}))
@@ -2041,12 +2085,63 @@ def free_port(start):
     return start
 
 
+def _build_id():
+    """這份 ytscript.py 的指紋，內容一改就不同。用來分辨 8756 上跑的是不是這一版。"""
+    import hashlib
+    try:
+        with open(os.path.abspath(__file__), "rb") as f:
+            return hashlib.sha1(f.read()).hexdigest()[:12]
+    except Exception:
+        return ""
+
+
+BUILD = _build_id()
+
+
+def _replace_old_instance():
+    """8756 上若還跑著「別的版本」的這個工具，請它結束，讓新版用回 8756。
+
+    git pull 之後舊版常常還在背景（瀏覽器分頁沒關，心跳一直讓它活著）。
+    新版若改用 8757，主畫面的 PWA 圖示固定連 8756，就會一直打開舊版 ——
+    看起來像「更新了卻沒修好」。同一版就不動它，維持原本「另開一個連接埠」的行為。
+    """
+    base = f"http://127.0.0.1:{DEFAULT_PORT}"
+    try:
+        with urllib.request.urlopen(base + "/api/ping", timeout=2) as r:
+            j = json.loads(r.read().decode("utf-8"))
+    except Exception:
+        return False                            # 沒有東西在跑，或不是這個工具
+    if not j.get("ok") or j.get("build") == BUILD:
+        return False
+    try:
+        req = urllib.request.Request(base + "/api/quit", data=b"{}", method="POST")
+        urllib.request.urlopen(req, timeout=3).read()
+    except Exception:
+        return False
+    for _ in range(25):                         # 最多等 5 秒讓它放開連接埠
+        with socket.socket() as s:
+            if s.connect_ex(("127.0.0.1", DEFAULT_PORT)) != 0:
+                break
+        time.sleep(0.2)
+    return True
+
+
 def serve(open_browser=True):
     global SERVER, PORT
 
     if not ensure_deps():
         return
 
+    if _replace_old_instance() and IS_TERMUX:
+        # 舊版結束時，它的 start.sh 會執行 termux-wake-unlock，把我們這邊的
+        # 喚醒鎖也一起放掉。等它跑完再鎖回來，長時間聽寫才不會在螢幕關掉後被系統中斷。
+        def _relock():
+            import subprocess
+            try:
+                subprocess.run(["termux-wake-lock"], capture_output=True, timeout=15)
+            except Exception:
+                pass
+        threading.Timer(3.0, _relock).start()
     PORT = port = free_port(DEFAULT_PORT)
     try:
         # 只綁 127.0.0.1。這個工具是每台裝置各自安裝、各自使用，不做區網分享，
