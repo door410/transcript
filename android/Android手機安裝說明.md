@@ -47,6 +47,8 @@ pkg install -y git
 git clone https://github.com/door410/transcript.git
 ```
 
+> 只用快速模式的話，可以把這行換成 `git clone -b fast-only https://github.com/door410/transcript.git`，改裝沒有「快速／準確」選項、也不下載準確模式大模型（約 574 MB）的 `fast-only` 分支。
+
 ```bash
 bash transcript/android/install.sh
 ```
