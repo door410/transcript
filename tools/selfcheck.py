@@ -203,6 +203,28 @@ def t_parsers():
     expect(s and s[0]["text"] == "A & B", f"srv1 解析錯誤：{s}")
 
 
+def t_whisper_json():
+    """手機 AI 聽寫的輸出解析。whisper.cpp 的 JSON 裡常有不完整的 UTF-8，
+    曾經因此讓所有無字幕影片在手機上失敗（UnicodeDecodeError）。"""
+    import tempfile
+    import ytscript as y
+    s = "這是測試".encode("utf-8")
+    parts = [s[:7], s[7:], b'\xe9 ok \\"q\\"', b"end\xe6\x9c"]   # 字被切開、半個字、引號、殘缺結尾
+    raw = (b'{"result":{"language":"zh"},"transcription":['
+           + b",".join(b'{"text":"' + p + b'","offsets":{"from":0,"to":1000}}' for p in parts) + b"]}")
+    fd, path = tempfile.mkstemp(suffix=".json")
+    with os.fdopen(fd, "wb") as f:
+        f.write(raw)
+    try:
+        items, lang = y.read_whisper_json(path)
+    finally:
+        os.remove(path)
+    texts = [i["text"] for i in items]
+    expect(texts[0] + texts[1] == "這是測試", f"被切開的字沒有接回去：{texts}")
+    expect(texts[2] == ' ok "q"' and texts[3] == "end", f"殘缺位元組沒有正確丟掉：{texts}")
+    expect(lang == "zh", f"偵測語言應為 zh，實際 {lang!r}（回報錯的話不會簡轉繁）")
+
+
 def _fake_result(mode):
     import ytscript as y
     meta = {"title": "測試影片", "channel": "測試頻道", "duration": 125,
@@ -371,6 +393,7 @@ def main():
         ("網址解析", t_video_id),
         ("字幕清理與段落合併", t_clean_and_paragraphs),
         ("三種字幕格式解析", t_parsers),
+        ("手機 AI 聽寫輸出解析（含殘缺中文）", t_whisper_json),
         ("輸出結構（介面需要的欄位）", t_output_shape),
         ("每一種分析模式", t_every_mode),
         ("介面按鈕與後端一致", t_ui_matches_backend),
