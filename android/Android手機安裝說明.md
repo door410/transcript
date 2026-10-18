@@ -1,5 +1,9 @@
 # 在 Android 手機上獨立運行（不需要開電腦）
 
+> **這是 `fast-only` 分支：** 介面沒有「快速／準確」選項，AI 聽寫一律用快速模式（tiny），
+> 安裝時也不下載準確模式用的大模型。想要有兩個按鈕的版本，請改用 `main` 分支
+> （見下方「切換版本」）。
+
 裝好之後，手機桌面會有一個圖示，點一下就開，**完全不需要電腦**。
 功能和電腦版一樣：三種分析模式、段落時間戳、下載 .md／.txt／.srt。
 
@@ -44,7 +48,7 @@ pkg install -y git
 ```
 
 ```bash
-git clone https://github.com/door410/transcript.git
+git clone -b fast-only https://github.com/door410/transcript.git
 ```
 
 ```bash
@@ -60,7 +64,7 @@ bash transcript/android/install.sh
 | [3/8] | 安裝 python、git、ffmpeg 等 | 幾分鐘 |
 | [4/8] | 安裝 Python 套件（版本依 `requirements/core.txt`） | 1 分鐘 |
 | [5/8] | **編譯 whisper.cpp**（固定版本 v1.9.4，只編譯程式會用到的 `whisper-cli`） | **5～15 分鐘，不要關 Termux** |
-| [6/8] | 下載 AI 聽寫模型（快速用 `tiny-q5_1`；準確依記憶體，8 GB 手機為 `large-v3-turbo`） | 依網速 |
+| [6/8] | 下載 AI 聽寫模型（只有 `tiny-q5_1`，31 MB） | 依網速 |
 | [7/8] | 建立啟動器 `~/ytscript/start.sh` 與桌面捷徑 | 幾秒 |
 | [8/8] | 端對端驗證 | 幾秒 |
 
@@ -152,6 +156,35 @@ python ~/transcript/tools/selfcheck.py
 
 ---
 
+## 切換版本
+
+| 分支 | 介面 | 安裝時下載的模型 |
+|---|---|---|
+| `fast-only`（這個） | 沒有「快速／準確」選項，一律快速 | 31 MB |
+| `main` | 有「快速／準確」兩個按鈕；準確在 8 GB 手機用 large-v3-turbo | 31 MB ＋ 約 574 MB |
+
+已經裝好的手機要換成另一個版本：
+
+```bash
+cd ~/transcript && git checkout main && git pull
+```
+
+（換回來就是 `git checkout fast-only && git pull`。）然後**重跑一次**安裝腳本，
+讓它補下載該版本需要的模型：
+
+```bash
+bash ~/transcript/android/install.sh
+```
+
+從 `main` 換到 `fast-only` 時，準確模式的模型會留著不刪（之後換回 `main` 就不必重新下載）。
+確定不會再用、想把空間拿回來的話：
+
+```bash
+rm -f ~/.cache/whisper-cpp/ggml-large-v3-turbo-q5_0.bin ~/.cache/whisper-cpp/ggml-small-q5_1.bin ~/.cache/whisper-cpp/ggml-silero-v5.1.2.bin
+```
+
+---
+
 ## 常見問題
 
 **`pkg install` 失敗、一直出現錯誤**
@@ -187,7 +220,7 @@ bash ~/transcript/android/install.sh
 |---|---|
 | Python、ffmpeg 與套件 | 約 250 MB |
 | whisper.cpp 原始碼與編譯結果 | 約 500 MB 以內 |
-| AI 模型 | 快速 31 MB；準確：記憶體 5.5 GB 以上約 574 MB、3.5 GB 以上約 181 MB |
+| AI 模型 | 31 MB（`tiny-q5_1`） |
 | 逐字稿快取 | 最多約 2.7 MB |
 | 程式本身 | 幾百 KB |
 

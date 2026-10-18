@@ -160,16 +160,6 @@ details.opts[open] summary::before{transform:rotate(90deg)}
       <summary>選項</summary>
       <div class="optbody">
         <div>
-          <span class="fi-label" style="display:block;margin-bottom:var(--space-2)">
-            AI 聽寫速度（只有影片沒字幕時才用到）
-          </span>
-          <div class="fi-seg" id="segSpeed">
-            <button class="fi-seg__btn is-on" data-v="fast">快速</button>
-            <button class="fi-seg__btn" data-v="accurate">準確</button>
-          </div>
-          <p class="fi-small fi-muted opthint" id="speedHint"></p>
-        </div>
-        <div>
           <span class="fi-label" style="display:block;margin-bottom:var(--space-2)">分析模式</span>
           <div class="fi-seg" id="segPrompt">
             <button class="fi-seg__btn is-on" data-v="deep">深度學習</button>
@@ -281,30 +271,10 @@ const PROMPT_HINTS = {
   quick: '精簡版：一句話總結 + 五個重點 + 值得回看的片段 + 一個行動。想快速判斷影片值不值得深入時用。',
   none:  '只給逐字稿本身，不附任何指示。你想自己下提示詞時用。',
 };
-// 電腦的說明。手機的說明要等 /api/ping 回報裝置後才換上（見 ping）。
-let SPEED_HINTS = {
-  fast:     '18 分鐘影片約 1 分鐘跑完。準確度低約 5%（每 18 個詞差 1 個）。' +
-            '除了準確度之外全面更省：耗電少 5 倍、硬碟少 12 倍、記憶體少 25%，' +
-            '網路流量則完全相同。趕時間、用電池、或只想先抓重點時選這個。',
-  accurate: '18 分鐘影片約 4.5 分鐘跑完，耗電是「快速」的 5.2 倍。' +
-            '準確度最高，值得用在你要仔細研讀的內容。',
-};
-function phoneHints(model) {
-  return {
-    fast:     '使用 tiny 模型與貪婪解碼，運算量最小，手機最不發熱。日常抓重點用這個就夠。',
-    accurate: model && model !== 'tiny'
-      ? `使用這支手機跑得動的最大模型（${model}）加上束搜索與靜音偵測。` +
-        '中文準確度高很多，但運算量約是快速的 15 倍，手機會持續發熱 —— ' +
-        '只在你要仔細研讀時才選，並避免邊充電邊跑。'
-      : '這支手機的記憶體不足以執行較大的模型，準確模式和快速相同。',
-  };
-}
 function syncHint() {
   $('#promptHint').textContent = PROMPT_HINTS[segVal('#segPrompt')];
-  $('#speedHint').textContent = SPEED_HINTS[segVal('#segSpeed')];
 }
-['#segPrompt', '#segSpeed'].forEach(id =>
-  $(id).addEventListener('click', e => { if (e.target.closest('.fi-seg__btn')) syncHint(); }));
+$('#segPrompt').addEventListener('click', e => { if (e.target.closest('.fi-seg__btn')) syncHint(); });
 syncHint();
 
 function options() {
@@ -313,8 +283,9 @@ function options() {
   return {
     prompt_mode:   segVal('#segPrompt'),
     allow_whisper: true,
-    // 快速=tiny；準確=交給後端自動判斷（電腦 small、手機依記憶體，8 GB 為 large-v3-turbo）
-    whisper_model: segVal('#segSpeed') === 'fast' ? 'tiny' : null,
+    // fast-only 分支：沒有「快速／準確」選項，AI 聽寫一律用 tiny（快速模式）。
+    // 有兩個按鈕的版本在 main 分支。
+    whisper_model: 'tiny',
     timestamps: 'para', target_sec: 45,
     include_meta: true, clean: true,
   };
@@ -506,9 +477,8 @@ $('#url').addEventListener('keydown', e => { if (e.key === 'Enter') start(); });
 
 // 心跳：讓程式知道還有人在用。關掉分頁幾分鐘後伺服器會自動結束，
 // 這樣就不會每按一次桌面捷徑就多留一個永遠不關的背景程序。
-const ping = () => fetch('/api/ping').then(r => r.json()).catch(() => null);
-// 第一次心跳順便問是不是手機，是的話換上手機版的速度說明
-ping().then(j => { if (j && j.phone) { SPEED_HINTS = phoneHints(j.accurate_model); syncHint(); } });
+const ping = () => fetch('/api/ping').catch(() => {});
+ping();
 setInterval(ping, 30000);   // 伺服器閒置 5 分鐘才結束，30 秒一次綽綽有餘
 
 // 明暗切換。點一下就換成和目前畫面相反的模式，並記住選擇

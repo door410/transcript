@@ -191,29 +191,11 @@ get_model() {   # $1=檔名 $2=最小可接受位元組
   rm -f "$f.part"; say "  $1 : 下載失敗"; return 1
 }
 
-# 只下載程式真的會讀的檔案。對照 ytscript.py：
-#   快速 -> tiny（GGML_QUANT 換成 tiny-q5_1）
-#   準確 -> phone_accurate_model()，門檻必須和這裡一致
-say "  【快速】模式用的模型："
+# fast-only 分支：介面沒有「準確」選項，AI 聽寫一律用 tiny（GGML_QUANT 換成 tiny-q5_1），
+# 所以只下載這一個模型。準確模式用的 large-v3-turbo／small 與靜音偵測模型都不下載。
+# 已經存在的（例如之前裝過 main 分支）刻意不刪：切回 main 時就不必重新下載 574 MB。
+say "  聽寫模型（tiny）："
 get_model "ggml-tiny-q5_1.bin" 20000000 || FAIL=1
-
-say "  【準確】模式用的模型（依記憶體決定）："
-if [ "$RAM" -ge 5500 ]; then
-  get_model "ggml-large-v3-turbo-q5_0.bin" 400000000 || get_model "ggml-small-q5_1.bin" 120000000
-elif [ "$RAM" -ge 3500 ]; then
-  get_model "ggml-small-q5_1.bin" 120000000
-else
-  say "  記憶體不足 3.5 GB，準確模式也使用 tiny"
-fi
-
-say "  靜音偵測模型（準確模式用，可減少憑空冒出的句子）："
-run curl -L -s -o "$MD/ggml-silero-v5.1.2.bin.part" \
-  "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin"
-if [ -s "$MD/ggml-silero-v5.1.2.bin.part" ]; then
-  mv "$MD/ggml-silero-v5.1.2.bin.part" "$MD/ggml-silero-v5.1.2.bin"; say "  silero VAD : OK"
-else
-  rm -f "$MD/ggml-silero-v5.1.2.bin.part"; say "  silero VAD : 略過（程式會自動不使用）"
-fi
 
 # 舊版安裝腳本下載、但程式從來不讀的模型，刪掉把空間還給手機：
 #   ggml-tiny.bin（75 MB）只被舊版的安裝自我測試使用；base 實測被 tiny 完全支配，不再使用
