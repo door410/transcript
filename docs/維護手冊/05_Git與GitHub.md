@@ -71,8 +71,13 @@ git config --global user.name "door410"
 ```
 
 ```bash
-git config --global user.email "aillm000410@gmail.com"
+git config --global user.email "307806738+door410@users.noreply.github.com"
 ```
+
+> **信箱一定要用上面這個 GitHub 代用地址，不要填真實 email。** 這個 repository 是公開的，
+> 每個存檔點上的信箱任何人都看得到。GitHub 已設定「Block command line pushes that expose
+> my email」，用真實 email 存檔的話，`git push` 會被拒絕（錯誤訊息含 `GH007`）。
+> 代用地址可在 GitHub → Settings → Emails 查到。
 
 4. 第一次 `git push` 時，會跳出瀏覽器要你登入 GitHub。登入後 Windows 會記住，之後不用再登入。
 
