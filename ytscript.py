@@ -639,8 +639,10 @@ def download_audio(url, log, low_data=True, info=None):
 
 # 本機實測的處理速度（實時倍率）。用來在開始 AI 聽寫前預估耗時，
 # 讓使用者知道大概要等多久，而不是默默卡住。
-RT_FACTOR = {"tiny": 17.0, "base": 11.0, "small": 4.2, "medium": 1.5}
-RT_PHONE = {"tiny": 1.5, "base": 0.9, "small": 0.35, "medium": 0.15}
+RT_FACTOR = {"tiny": 17.0, "base": 11.0, "small": 4.2, "medium": 1.5,
+             "large-v3-turbo": 2.2}
+RT_PHONE = {"tiny": 1.5, "base": 0.9, "small": 0.35, "medium": 0.15,
+            "large-v3-turbo": 0.22}
 
 
 def eta_text(duration, model):
@@ -943,7 +945,9 @@ def default_model_size():
     base 比 tiny 只好 0.7 個百分點卻慢 1.5 倍，完全被支配，所以不使用。
     """
     if IS_TERMUX:
-        return "tiny"                       # 手機 CPU 弱，只能用最小的
+        # 這裡只決定「準確」模式；「快速」由介面直接指定 tiny，不經過這裡。
+        # 曾經在這裡寫死 tiny，結果手機上的「準確」完全沒有作用。
+        return phone_accurate_model()
     if pick_device()[0] == "cuda":
         return "small"                      # 顯卡夠快，直接給最佳品質
 
@@ -1022,13 +1026,42 @@ def engine_whisper(url, langs, log, model_size=None, low_data=True, info=None,
 # ==========================================================================
 
 CHUNK_SEC = 1800          # 長影片每 30 分鐘一段處理，避免暫存 WAV 過大
+# 長影片分段之間的降溫等待（秒）。持續滿載會觸發系統降頻，
+# 屆時整體反而更慢，所以這個等待通常不會讓總時間變長。
+COOLDOWN_SEC = 15
 # whisper.cpp 一律用量化版：檔案小很多，品質差異在聽寫用途上可以忽略。
 # 實測下載大小：tiny 74 MB -> tiny-q5_1 31 MB（少 58%），
 # 在慢速網路上是 14 分鐘與 6 分鐘的差別。手機尤其有感。
-GGML_QUANT = {"tiny": "tiny-q5_1", "base": "base-q5_1", "small": "small-q5_1"}
+GGML_QUANT = {"tiny": "tiny-q5_1", "base": "base-q5_1", "small": "small-q5_1",
+              "large-v3-turbo": "large-v3-turbo-q5_0"}
 GGML_SIZES = {"tiny-q5_1": 31, "base-q5_1": 57, "small-q5_1": 181,
+              "large-v3-turbo-q5_0": 574,
               "tiny": 75, "base": 142, "small": 466, "medium": 1500, "large-v3": 3100}
 GGML_URL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-{}.bin"
+VAD_URL = ("https://huggingface.co/ggml-org/whisper-vad/resolve/main/"
+           "ggml-silero-v5.1.2.bin")
+
+# 手機「準確」模式的模型，品質由高到低。turbo 的解碼層只有 4 層（large-v3 是
+# 32 層），中文準確度接近 large-v3，是手機上實際跑得動的最高品質選擇。
+# 沒有 base：實測它被 tiny 完全支配（見 default_model_size）。
+PHONE_LADDER = ["large-v3-turbo", "small", "tiny"]
+
+
+def phone_accurate_model():
+    """手機「準確」模式：依總記憶體挑跑得動的最大模型。
+    門檻要和 android/install.sh [6/8] 一致，否則會用到沒預先下載的模型。"""
+    ram = total_ram_mb()
+    if ram >= 5500:
+        return "large-v3-turbo"
+    if ram >= 3500:
+        return "small"
+    return "tiny"
+
+
+def smaller_model(size):
+    """記憶體不足時往下降一級；已經是最小的就回 None。"""
+    i = PHONE_LADDER.index(size) if size in PHONE_LADDER else len(PHONE_LADDER) - 1
+    return PHONE_LADDER[i + 1] if i + 1 < len(PHONE_LADDER) else None
 
 
 def model_dir():
@@ -1090,6 +1123,83 @@ def ensure_ggml_model(size, log):
     return path
 
 
+def vad_model_path(log):
+    """語音活動偵測（VAD）模型。準確模式用它跳過靜音段 ——
+    靜音段是 whisper 憑空冒出句子（幻覺文字）的主要來源。
+    install.sh 會先下載好；沒有就在這裡補抓（約 1 MB），抓不到就回 None 不使用。"""
+    path = os.path.join(model_dir(), "ggml-silero-v5.1.2.bin")
+    if os.path.exists(path) and os.path.getsize(path) > 500_000:
+        return path
+    try:
+        log("下載語音偵測模型（約 1 MB，只需這一次）…")
+        req = urllib.request.Request(VAD_URL, headers={"User-Agent": UA})
+        with urllib.request.urlopen(req, timeout=120) as r, open(path + ".part", "wb") as f:
+            f.write(r.read())
+        os.replace(path + ".part", path)
+        return path
+    except Exception:
+        try:
+            os.remove(path + ".part")
+        except Exception:
+            pass
+        return None
+
+
+_WHISPER_CAPS = {}
+
+
+def whisper_caps(exe):
+    """讀一次 whisper-cli --help，記下它支援哪些旗標。
+    一次聽寫可能要幾十分鐘，不能用「先跑跑看、失敗再拿掉旗標」的方式試探。"""
+    import subprocess
+    if exe in _WHISPER_CAPS:
+        return _WHISPER_CAPS[exe]
+    text = ""
+    try:
+        h = subprocess.run([exe, "--help"], capture_output=True, timeout=30)
+        text = ((h.stdout or b"") + b"\n" + (h.stderr or b"")).decode("utf-8", "replace")
+    except Exception:
+        pass
+    flags = ("-bs", "-bo", "-mc", "-pp", "--vad", "-vm", "-vt")
+    _WHISPER_CAPS[exe] = {f: (f in text) for f in flags}
+    return _WHISPER_CAPS[exe]
+
+
+def run_whisper(cmd, timeout_sec, log, label):
+    """執行 whisper-cli，解析 -pp 印出的進度百分比，回報已跑與預估剩餘時間。
+    準確模式在手機上可能跑十幾分鐘，只顯示「聽寫中…」會分不出是在跑還是卡死。"""
+    import subprocess
+    t0 = time.time()
+    try:
+        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                                text=True, errors="replace", bufsize=1)
+    except Exception as e:
+        return 1, f"無法啟動 whisper-cli：{e}"
+    killer = threading.Timer(timeout_sec, proc.kill)
+    killer.daemon = True
+    killer.start()
+    pat = re.compile(r"progress\s*=\s*(\d+)\s*%")
+    tail, last = [], 0.0
+    try:
+        for line in proc.stderr:
+            line = line.rstrip()
+            if line:
+                tail = (tail + [line])[-20:]
+            m = pat.search(line)
+            if m and time.time() - last > 4:
+                last = time.time()
+                pct = max(1, min(99, int(m.group(1))))
+                spent = time.time() - t0
+                eta = spent / pct * (100 - pct)
+                log(f"{label} {pct}%（已跑 {int(spent // 60)} 分 {int(spent % 60)} 秒，"
+                    f"預計還要 {int(eta // 60)} 分 {int(eta % 60)} 秒）")
+    except Exception:
+        pass
+    rc = proc.wait()
+    killer.cancel()
+    return rc, "\n".join(tail)
+
+
 def engine_whispercpp(url, langs, log, model_size=None, low_data=True, info=None,
                       lang=None):
     import shutil
@@ -1107,30 +1217,54 @@ def engine_whispercpp(url, langs, log, model_size=None, low_data=True, info=None
     if not ffmpeg:
         raise RuntimeError("需要 ffmpeg 才能轉換音訊。Android：pkg install ffmpeg")
 
-    model_size = model_size or default_model_size()
-    model = ensure_ggml_model(model_size, log)
+    state = {"size": model_size or default_model_size(), "crashed": False}
+    state["model"] = ensure_ggml_model(state["size"], log)
 
     audio, tmpdir, size_mb, _got = download_audio(url, log, low_data, info)
 
     # 同 engine_whisper：語言預設自動偵測，不從偏好清單硬猜
     hint = lang or "auto"
     total = float((_got or {}).get("duration") or (info or {}).get("duration") or 0)
+    caps = whisper_caps(exe)
 
-    def transcribe_chunk(src, offset, idx):
+    def build_args():
+        """快速＝貪婪解碼；準確＝束搜索 5 ＋ 跳過靜音段。
+        whisper-cli 不給 -bs 時預設就是束搜索 5，所以快速模式一定要明確關掉，
+        否則 tiny 也在做好幾倍的解碼運算，白白發熱。"""
+        fast = state["size"] in ("tiny", "base")
+        a = []
+        if caps.get("-bs") and caps.get("-bo"):
+            a += ["-bs", "1", "-bo", "1"] if fast else ["-bs", "5", "-bo", "5"]
+        if not fast and caps.get("-mc"):
+            a += ["-mc", "64"]      # 限制上下文，避免大模型陷入同一句反覆輸出
+        if not fast and caps.get("--vad") and caps.get("-vm"):
+            vm = vad_model_path(log)
+            if vm:
+                a += ["--vad", "-vm", vm] + (["-vt", "0.5"] if caps.get("-vt") else [])
+        if caps.get("-pp"):
+            a += ["-pp"]
+        log(f"聽寫設定：模型 {state['size']}｜"
+            + ("快速（貪婪解碼）" if fast else "準確（束搜索 5）")
+            + ("｜跳過靜音段" if "--vad" in a else ""))
+        return a
+
+    def transcribe_chunk(offset, idx, seconds, extra):
         """轉成 16kHz WAV -> 聽寫 -> 立刻刪掉暫存檔，回傳帶偏移的段落。"""
         wav = os.path.join(tmpdir, f"c{idx}.wav")
         cmd = [ffmpeg, "-y"]
         if offset is not None:
             cmd += ["-ss", str(offset), "-t", str(CHUNK_SEC)]
-        cmd += ["-i", src, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wav]
+        cmd += ["-i", audio, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wav]
         subprocess.run(cmd, capture_output=True, timeout=3600)
         if not os.path.exists(wav) or os.path.getsize(wav) < 2000:
             return []
 
         base_out = os.path.join(tmpdir, f"o{idx}")
-        subprocess.run([exe, "-m", model, "-f", wav, "-l", hint,
-                        "-oj", "-of", base_out, "-np", "-nt"],
-                       capture_output=True, timeout=14400)
+        label = "AI 聽寫中" if offset is None else f"AI 聽寫中（第 {idx + 1} 段）"
+        # 逾時上限依音訊長度計算：準確模式在慢手機上約 0.2 倍速，留足 40 倍餘裕
+        rc, err = run_whisper([exe, "-m", state["model"], "-f", wav, "-l", hint,
+                               "-oj", "-of", base_out, "-np", "-nt"] + extra,
+                              max(900, int(seconds * 40)), log, label)
         jp = base_out + ".json"
         got_segs = []
         if os.path.exists(jp):
@@ -1145,6 +1279,10 @@ def engine_whispercpp(url, langs, log, model_size=None, low_data=True, info=None
                 en = (off.get("to") or 0) / 1000.0 + (offset or 0)
                 got_segs.append({"text": txt, "start": st,
                                  "duration": max(en - st, 0)})
+        elif rc != 0:
+            state["crashed"] = True
+            log(f"whisper-cli 異常結束（結束碼 {rc}）"
+                + (f"：{err.splitlines()[-1][:160]}" if err else ""))
         for f_ in (wav, jp):                    # 立刻回收空間
             try:
                 os.remove(f_)
@@ -1154,7 +1292,20 @@ def engine_whispercpp(url, langs, log, model_size=None, low_data=True, info=None
 
     segs = []
     try:
-        segs = _whispercpp_run(transcribe_chunk, audio, total, log)
+        extra = build_args()
+        segs = _whispercpp_run(lambda off, i, sec: transcribe_chunk(off, i, sec, extra),
+                               total, log)
+        # 大模型在記憶體不足時會被系統直接殺掉、什麼都沒輸出。這時自動降一級再試；
+        # 但若 whisper 正常結束只是沒有文字（例如整段無聲），換模型也沒用，不重跑。
+        while not segs and state["crashed"]:
+            nxt = smaller_model(state["size"])
+            if not nxt:
+                break
+            log(f"模型 {state['size']} 跑不動（多半是記憶體不足），改用 {nxt} 重試…")
+            state.update(size=nxt, crashed=False, model=ensure_ggml_model(nxt, log))
+            extra = build_args()
+            segs = _whispercpp_run(lambda off, i, sec: transcribe_chunk(off, i, sec, extra),
+                                   total, log)
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)   # 失敗時也要清，理由同上
 
@@ -1162,10 +1313,10 @@ def engine_whispercpp(url, langs, log, model_size=None, low_data=True, info=None
         raise RuntimeError("AI 聽寫沒有產生任何文字（音訊可能是無聲的，"
                            "或模型太大導致記憶體不足）")
     return segs, {"lang": hint, "generated": True, "whisper": True,
-                  "engine": f"whisper.cpp {model_size}", "audio_mb": size_mb}
+                  "engine": f"whisper.cpp {state['size']}", "audio_mb": size_mb}
 
 
-def _whispercpp_run(transcribe_chunk, audio, total, log):
+def _whispercpp_run(transcribe_chunk, total, log):
     """長影片分段處理，短影片一次做完。抽出來只是為了讓上面的清理邏輯乾淨。"""
     segs = []
     if total > CHUNK_SEC * 1.2:
@@ -1175,13 +1326,16 @@ def _whispercpp_run(transcribe_chunk, audio, total, log):
         log(f"影片較長（{total/3600:.1f} 小時），分成 {n} 段處理以節省暫存空間")
         for i in range(n):
             log(f"AI 聽寫中… 第 {i+1}/{n} 段")
-            got = transcribe_chunk(audio, i * CHUNK_SEC, i)
+            got = transcribe_chunk(i * CHUNK_SEC, i, CHUNK_SEC)
             if not got and i > 0:
                 break
             segs += got
+            if i + 1 < n and COOLDOWN_SEC > 0:
+                log(f"稍停 {COOLDOWN_SEC} 秒讓手機降溫…")
+                time.sleep(COOLDOWN_SEC)
     else:
         log("AI 聽寫中…（完全離線運算）")
-        segs = transcribe_chunk(audio, None, 0)
+        segs = transcribe_chunk(None, 0, total or 600)
     return segs
 
 
@@ -1819,7 +1973,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/ping":
             global LAST_PING
             LAST_PING = time.time()
-            return self._send(200, json.dumps({"ok": True}))
+            # 介面靠這兩個欄位顯示對應裝置的「快速／準確」說明
+            return self._send(200, json.dumps({
+                "ok": True, "phone": IS_TERMUX,
+                "accurate_model": phone_accurate_model() if IS_TERMUX else None}))
 
         return self._send(404, json.dumps({"error": "not found"}))
 

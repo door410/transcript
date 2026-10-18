@@ -95,7 +95,7 @@ say "  完成"
 # ---------------------------------------------------------------------
 say ""
 say "===== [3/8] 安裝必要套件 ====="
-for p in python git cmake make clang ffmpeg wget curl; do
+for p in python git cmake make clang ffmpeg curl; do
   if command -v "$p" >/dev/null 2>&1; then
     say "  $(printf '%-8s' "$p") : 已有"
   else
@@ -153,15 +153,17 @@ else
   say "  編譯中，5～15 分鐘，請不要關掉 Termux…"
   # -march 指定 ARMv8.2 的 dotprod／fp16 指令。開與不開的差距是好幾倍，
   # 這是手機上影響聽寫速度最大的單一因素。
+  # --target whisper-cli：程式只會呼叫 whisper-cli。預設會連 whisper-server、
+  # bench、quantize、測試程式一起編譯，全部用不到，只是讓手機多燒幾分鐘 CPU。
   ( cd "$WH" && rm -rf build && cmake -B build -DCMAKE_BUILD_TYPE=Release \
       -DGGML_NATIVE=ON \
       -DCMAKE_C_FLAGS="-O3 -march=armv8.2-a+dotprod+fp16" \
       -DCMAKE_CXX_FLAGS="-O3 -march=armv8.2-a+dotprod+fp16" ) >>"$LOG" 2>&1
-  ( cd "$WH" && cmake --build build -j"$NPROC" --config Release ) >>"$LOG" 2>&1
+  ( cd "$WH" && cmake --build build -j"$NPROC" --config Release --target whisper-cli ) >>"$LOG" 2>&1
   if [ ! -x "$CLI" ]; then
     say "  指定指令集失敗，改用保守設定重建…"
     ( cd "$WH" && rm -rf build && cmake -B build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=ON ) >>"$LOG" 2>&1
-    ( cd "$WH" && cmake --build build -j"$NPROC" --config Release ) >>"$LOG" 2>&1
+    ( cd "$WH" && cmake --build build -j"$NPROC" --config Release --target whisper-cli ) >>"$LOG" 2>&1
   fi
   if [ -x "$CLI" ]; then
     say "  建置成功"
@@ -189,9 +191,11 @@ get_model() {   # $1=檔名 $2=最小可接受位元組
   rm -f "$f.part"; say "  $1 : 下載失敗"; return 1
 }
 
+# 只下載程式真的會讀的檔案。對照 ytscript.py：
+#   快速 -> tiny（GGML_QUANT 換成 tiny-q5_1）
+#   準確 -> phone_accurate_model()，門檻必須和這裡一致
 say "  【快速】模式用的模型："
-get_model "ggml-tiny.bin" 60000000 || FAIL=1
-get_model "ggml-tiny-q5_1.bin" 20000000
+get_model "ggml-tiny-q5_1.bin" 20000000 || FAIL=1
 
 say "  【準確】模式用的模型（依記憶體決定）："
 if [ "$RAM" -ge 5500 ]; then
@@ -199,7 +203,7 @@ if [ "$RAM" -ge 5500 ]; then
 elif [ "$RAM" -ge 3500 ]; then
   get_model "ggml-small-q5_1.bin" 120000000
 else
-  get_model "ggml-base-q5_1.bin" 30000000
+  say "  記憶體不足 3.5 GB，準確模式也使用 tiny"
 fi
 
 say "  靜音偵測模型（準確模式用，可減少憑空冒出的句子）："
@@ -210,6 +214,12 @@ if [ -s "$MD/ggml-silero-v5.1.2.bin.part" ]; then
 else
   rm -f "$MD/ggml-silero-v5.1.2.bin.part"; say "  silero VAD : 略過（程式會自動不使用）"
 fi
+
+# 舊版安裝腳本下載、但程式從來不讀的模型，刪掉把空間還給手機：
+#   ggml-tiny.bin（75 MB）只被舊版的安裝自我測試使用；base 實測被 tiny 完全支配，不再使用
+for f in ggml-tiny.bin ggml-base-q5_1.bin; do
+  [ -f "$MD/$f" ] && { rm -f "$MD/$f"; say "  刪除用不到的舊模型：$f"; }
+done
 
 # 舊版留下的設定檔會覆寫程式裡的固定值，是速度莫名變慢的來源
 rm -f "$MD/args.conf" "$MD/model.conf" "$MD/lang.conf"
@@ -255,13 +265,13 @@ ok() { say "  $(printf '%-16s' "$1") : $2"; }
 command -v ffmpeg >/dev/null 2>&1 && ffmpeg -version >/dev/null 2>&1 \
   && ok "ffmpeg" "OK" || { ok "ffmpeg" "失敗"; FAIL=1; }
 [ -x "$CLI" ] && ok "whisper-cli" "OK" || { ok "whisper-cli" "失敗"; FAIL=1; }
-[ -s "$MD/ggml-tiny.bin" ] && ok "tiny 模型" "OK" || { ok "tiny 模型" "失敗"; FAIL=1; }
+[ -s "$MD/ggml-tiny-q5_1.bin" ] && ok "tiny 模型" "OK" || { ok "tiny 模型" "失敗"; FAIL=1; }
 python -c "import yt_dlp" 2>/dev/null && ok "yt-dlp" "OK" || { ok "yt-dlp" "失敗"; FAIL=1; }
 [ -f "$APP/ytscript.py" ] && grep -qF "cd \"$APP\"" "$DEST/start.sh" 2>/dev/null \
   && ok "程式與啟動器" "OK" || { ok "程式與啟動器" "失敗"; FAIL=1; }
 
 # 真正跑一次：Python 產生音檔 -> ffmpeg 轉檔 -> whisper.cpp 聽寫
-if [ -x "$CLI" ] && [ -s "$MD/ggml-tiny.bin" ] && ffmpeg -version >/dev/null 2>&1; then
+if [ -x "$CLI" ] && [ -s "$MD/ggml-tiny-q5_1.bin" ] && ffmpeg -version >/dev/null 2>&1; then
   T="$HOME/.install-test"
   mkdir -p "$T"
   python - "$T/src.wav" <<'PYEOF' >>"$LOG" 2>&1
@@ -275,7 +285,7 @@ for i in range(44100 * 3):
 w.writeframes(bytes(buf)); w.close()
 PYEOF
   if run ffmpeg -y -loglevel error -i "$T/src.wav" -ar 16000 -ac 1 "$T/out.wav" \
-     && run "$CLI" -m "$MD/ggml-tiny.bin" -f "$T/out.wav" -l zh -nt; then
+     && run "$CLI" -m "$MD/ggml-tiny-q5_1.bin" -f "$T/out.wav" -l zh -nt; then
     ok "端對端實測" "OK"
   else
     ok "端對端實測" "失敗"; FAIL=1

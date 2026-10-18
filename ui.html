@@ -5,6 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0D0D0D">
 <title>YouTube 逐字稿 → AI</title>
+<script>
+// 明暗模式：在載入樣式前就套上使用者上次的選擇，避免畫面先閃一下另一種顏色。
+// 沒選過就不設 data-theme，交給 tokens.css 跟著系統設定走。
+try {
+  const t = localStorage.getItem('theme');
+  if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+} catch (e) {}
+</script>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;700;800;900&family=Archivo+Black&family=Space+Mono:wght@400;700&family=Noto+Sans+TC:wght@400;700;900&display=swap">
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icon-192.png">
@@ -23,7 +31,20 @@ body{padding:0 var(--space-4) var(--space-8)}
 }
 
 /* ---- 頁首：置中，全頁唯一大黑塊 ---- */
-.hd{text-align:center; padding-block:var(--space-6)}
+.hd{text-align:center; padding-block:var(--space-6); position:relative}
+
+/* 明暗切換：頁首右上角。頁首在兩種模式下都是黑底，所以圖示一律用淺色 */
+.themebtn{
+  position:absolute; top:var(--space-3); right:var(--space-3);
+  width:40px; height:40px; padding:0;
+  display:grid; place-items:center;
+  background:transparent; color:var(--color-text-invert);
+  border:var(--border-width) solid var(--color-text-invert);
+  cursor:pointer;
+  transition:background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.themebtn:hover{background:var(--color-text-invert); color:var(--color-surface-ink)}
+.themebtn svg{width:20px; height:20px}
 .hd__mark{
   width:56px; height:56px; margin:0 auto var(--space-4);
   display:grid; place-items:center;
@@ -112,6 +133,7 @@ details.opts[open] summary::before{transform:rotate(90deg)}
 
   <!-- 頁首 -->
   <header class="fi-panel fi-panel--ink hd">
+    <button id="btnTheme" class="themebtn" type="button"></button>
     <span class="hd__mark">
       <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
         <path d="M3 4h18v2.6H3zm0 5.2h18v2.6H3zm0 5.2h12v2.6H3zm0 5.2h12v2.6H3z"/>
@@ -259,13 +281,24 @@ const PROMPT_HINTS = {
   quick: '精簡版：一句話總結 + 五個重點 + 值得回看的片段 + 一個行動。想快速判斷影片值不值得深入時用。',
   none:  '只給逐字稿本身，不附任何指示。你想自己下提示詞時用。',
 };
-const SPEED_HINTS = {
+// 電腦的說明。手機的說明要等 /api/ping 回報裝置後才換上（見 ping）。
+let SPEED_HINTS = {
   fast:     '18 分鐘影片約 1 分鐘跑完。準確度低約 5%（每 18 個詞差 1 個）。' +
             '除了準確度之外全面更省：耗電少 5 倍、硬碟少 12 倍、記憶體少 25%，' +
             '網路流量則完全相同。趕時間、用電池、或只想先抓重點時選這個。',
   accurate: '18 分鐘影片約 4.5 分鐘跑完，耗電是「快速」的 5.2 倍。' +
-            '準確度最高，值得用在你要仔細研讀的內容。手機會自動改用快速模式。',
+            '準確度最高，值得用在你要仔細研讀的內容。',
 };
+function phoneHints(model) {
+  return {
+    fast:     '使用 tiny 模型與貪婪解碼，運算量最小，手機最不發熱。日常抓重點用這個就夠。',
+    accurate: model && model !== 'tiny'
+      ? `使用這支手機跑得動的最大模型（${model}）加上束搜索與靜音偵測。` +
+        '中文準確度高很多，但運算量約是快速的 15 倍，手機會持續發熱 —— ' +
+        '只在你要仔細研讀時才選，並避免邊充電邊跑。'
+      : '這支手機的記憶體不足以執行較大的模型，準確模式和快速相同。',
+  };
+}
 function syncHint() {
   $('#promptHint').textContent = PROMPT_HINTS[segVal('#segPrompt')];
   $('#speedHint').textContent = SPEED_HINTS[segVal('#segSpeed')];
@@ -280,7 +313,7 @@ function options() {
   return {
     prompt_mode:   segVal('#segPrompt'),
     allow_whisper: true,
-    // 快速=tiny；準確=交給後端自動判斷（電腦 small、手機 tiny）
+    // 快速=tiny；準確=交給後端自動判斷（電腦 small、手機依記憶體，8 GB 為 large-v3-turbo）
     whisper_model: segVal('#segSpeed') === 'fast' ? 'tiny' : null,
     timestamps: 'para', target_sec: 45,
     include_meta: true, clean: true,
@@ -473,9 +506,34 @@ $('#url').addEventListener('keydown', e => { if (e.key === 'Enter') start(); });
 
 // 心跳：讓程式知道還有人在用。關掉分頁幾分鐘後伺服器會自動結束，
 // 這樣就不會每按一次桌面捷徑就多留一個永遠不關的背景程序。
-const ping = () => fetch('/api/ping').catch(() => {});
-ping();
+const ping = () => fetch('/api/ping').then(r => r.json()).catch(() => null);
+// 第一次心跳順便問是不是手機，是的話換上手機版的速度說明
+ping().then(j => { if (j && j.phone) { SPEED_HINTS = phoneHints(j.accurate_model); syncHint(); } });
 setInterval(ping, 30000);   // 伺服器閒置 5 分鐘才結束，30 秒一次綽綽有餘
+
+// 明暗切換。點一下就換成和目前畫面相反的模式，並記住選擇
+const ICON_MOON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">' +
+  '<path d="M21 14.5A9 9 0 0 1 9.5 3a9 9 0 1 0 11.5 11.5z"/></svg>';
+const ICON_SUN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" ' +
+  'stroke-linecap="square" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="currentColor" stroke="none"/>' +
+  '<path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3M4.6 4.6l2.1 2.1M17.3 17.3l2.1 2.1M4.6 19.4l2.1-2.1M17.3 6.7l2.1-2.1"/></svg>';
+const sysDark = window.matchMedia('(prefers-color-scheme: dark)');
+const isDark = () => (document.documentElement.dataset.theme || (sysDark.matches ? 'dark' : 'light')) === 'dark';
+function syncTheme() {
+  const dark = isDark(), b = $('#btnTheme');
+  b.innerHTML = dark ? ICON_SUN : ICON_MOON;
+  b.title = dark ? '切換成淺色模式' : '切換成深色模式';
+  b.setAttribute('aria-label', b.title);
+  document.querySelector('meta[name="theme-color"]').content = dark ? '#0D0D0D' : '#FAF9F5';
+}
+$('#btnTheme').addEventListener('click', () => {
+  const t = isDark() ? 'light' : 'dark';
+  document.documentElement.dataset.theme = t;
+  try { localStorage.setItem('theme', t); } catch (e) {}
+  syncTheme();
+});
+sysDark.addEventListener('change', syncTheme);   // 沒選過時，系統切換也要跟著換圖示
+syncTheme();
 
 window.addEventListener('load', () => { if (window.innerWidth > 640) $('#url').focus(); });
 </script>

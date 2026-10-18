@@ -59,8 +59,8 @@ bash transcript/android/install.sh
 | [2/8] | 系統套件整包升級（避免 Termux 升級到一半的問題） | 幾分鐘 |
 | [3/8] | 安裝 python、git、ffmpeg 等 | 幾分鐘 |
 | [4/8] | 安裝 Python 套件（版本依 `requirements/core.txt`） | 1 分鐘 |
-| [5/8] | **編譯 whisper.cpp**（固定版本 v1.9.4） | **5～15 分鐘，不要關 Termux** |
-| [6/8] | 下載 AI 聽寫模型 | 依網速 |
+| [5/8] | **編譯 whisper.cpp**（固定版本 v1.9.4，只編譯程式會用到的 `whisper-cli`） | **5～15 分鐘，不要關 Termux** |
+| [6/8] | 下載 AI 聽寫模型（快速用 `tiny-q5_1`；準確依記憶體，8 GB 手機為 `large-v3-turbo`） | 依網速 |
 | [7/8] | 建立啟動器 `~/ytscript/start.sh` 與桌面捷徑 | 幾秒 |
 | [8/8] | 端對端驗證 | 幾秒 |
 
@@ -186,8 +186,8 @@ bash ~/transcript/android/install.sh
 | 項目 | 大小 |
 |---|---|
 | Python、ffmpeg 與套件 | 約 250 MB |
-| whisper.cpp 原始碼與編譯結果 | 約 500 MB |
-| AI 模型 | 數十到數百 MB（依記憶體決定下載哪些） |
+| whisper.cpp 原始碼與編譯結果 | 約 500 MB 以內 |
+| AI 模型 | 快速 31 MB；準確：記憶體 5.5 GB 以上約 574 MB、3.5 GB 以上約 181 MB |
 | 逐字稿快取 | 最多約 2.7 MB |
 | 程式本身 | 幾百 KB |
 
