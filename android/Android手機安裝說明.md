@@ -177,10 +177,10 @@ bash ~/transcript/android/install.sh
 ```
 
 從 `main` 換到 `fast-only` 時，準確模式的模型會留著不刪（之後換回 `main` 就不必重新下載）。
-確定不會再用、想把空間拿回來的話：
+確定不會再用、想把空間拿回來的話，跑這個清理腳本。它會刪掉這個版本用不到的模型、舊手機版留下的 ZIP 與解壓資料夾、零碎舊檔和安裝暫存，每一項都先確認是這個工具的檔案才刪：
 
 ```bash
-rm -f ~/.cache/whisper-cpp/ggml-large-v3-turbo-q5_0.bin ~/.cache/whisper-cpp/ggml-small-q5_1.bin ~/.cache/whisper-cpp/ggml-silero-v5.1.2.bin
+bash ~/transcript/android/cleanup.sh
 ```
 
 ---
