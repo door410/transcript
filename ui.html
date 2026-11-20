@@ -131,6 +131,14 @@ details.pset summary:hover{opacity:1}
   font-size:13px; padding:6px 8px; border:var(--border); background:transparent; color:inherit}
 .pbody textarea{min-height:180px; resize:vertical; font-family:var(--font-mono); line-height:1.5}
 .pbtns{display:flex; gap:var(--space-2); flex-wrap:wrap}
+/* local-files：「選本機檔案」和「自訂提示詞」並排，同樣是一行淡色小字。
+   用絕對定位貼在「自訂提示詞」右邊，提示詞展開時編輯區仍維持全寬。 */
+.prow{position:relative}
+.fpick{position:absolute; top:var(--space-2); left:calc(5.4em + var(--space-5));
+  background:none; border:0; padding:0; margin:0; color:inherit; cursor:pointer;
+  font:700 12px/1.2 var(--font-sans); letter-spacing:.08em; opacity:.6}
+.fpick:hover{opacity:1}
+.fpick::before{content:"▸"; font-family:var(--font-mono); display:inline-block; margin-right:.6em}
 
 /* ---- 結果 ---- */
 .badges{display:flex; gap:var(--space-2); flex-wrap:wrap; margin-top:var(--space-3)}
@@ -197,6 +205,7 @@ details.pset summary:hover{opacity:1}
             <button class="fi-seg__btn" data-v="none">純逐字稿</button>
           </div>
           <p class="fi-small fi-muted opthint" id="promptHint"></p>
+          <div class="prow">
           <details class="pset" id="pset">
             <summary>自訂提示詞</summary>
             <div class="pbody">
@@ -210,6 +219,10 @@ details.pset summary:hover{opacity:1}
               <p class="fi-small fi-muted" id="pNote"></p>
             </div>
           </details>
+          <button class="fpick" id="btnFile" type="button">選本機檔案</button>
+          <input type="file" id="fileIn" hidden
+                 accept="video/*,audio/*,.mp4,.mov,.mkv,.webm,.avi,.mp3,.m4a,.aac,.wav,.flac,.ogg,.opus,.amr,.3gp">
+          </div>
         </div>
       </div>
     </details>
@@ -412,6 +425,7 @@ function options() {
 }
 
 async function start() {
+  if (pickedFile) return startFile();      // local-files
   const url = $('#url').value.trim();
   if (!url) { $('#url').focus(); return; }
 
@@ -458,6 +472,7 @@ function done(res) {
 
   const m = res.meta, s = res.stats, sm = res.sub_meta;
   $('#vTitle').textContent = m.title || '（無法取得標題）';
+  $('#btnOpen').hidden = !!m.local;        // local-files
 
   const bits = [];
   if (m.channel) bits.push(m.channel);
@@ -591,6 +606,58 @@ btnClear.addEventListener('click', () => {
   urlBox.focus();
 });
 syncClear();
+
+// ---- 本機檔案（只有 local-files 版本有）----
+// 選好檔案後，檔名顯示在連結框裡（不能打字），按 ✕ 就回到貼網址。
+// 按「開始轉錄」時先問程式空間夠不夠，再把檔案傳過去，之後和網址一樣看進度。
+let pickedFile = null;
+const fileIn = $('#fileIn');
+$('#btnFile').addEventListener('click', () => fileIn.click());
+// 位置跟著「自訂提示詞」的實際寬度，換字型也不會疊在一起
+const placePick = () => {
+  const w = $('#pset summary').offsetWidth;
+  if (w) $('#btnFile').style.left = (w + 20) + 'px';
+};
+document.querySelector('details.opts').addEventListener('toggle', placePick);
+if (document.fonts) document.fonts.ready.then(placePick);
+fileIn.addEventListener('change', () => {
+  const f = fileIn.files[0];
+  fileIn.value = '';
+  if (!f) return;
+  pickedFile = f;
+  urlBox.readOnly = true;
+  urlBox.value = '本機檔案：' + f.name + '（' + (f.size / 1048576).toFixed(1) + ' MB）';
+  syncClear();
+});
+btnClear.addEventListener('click', () => { pickedFile = null; urlBox.readOnly = false; });
+
+async function startFile() {
+  const f = pickedFile;
+  $('#go').disabled = true; $('#go').textContent = '處理中…';
+  $('#result').hidden = true;
+  setErr(''); setStatus('正在檢查儲存空間…');
+  try {
+    const c = await (await fetch('/api/upload-check?size=' + f.size)).json();
+    if (c.error) throw new Error(c.error);
+    const j = await new Promise((ok, bad) => {
+      const x = new XMLHttpRequest();
+      x.open('POST', '/api/upload');
+      x.setRequestHeader('X-File-Name', encodeURIComponent(f.name));
+      x.setRequestHeader('X-Options', encodeURIComponent(JSON.stringify(options())));
+      x.upload.onprogress = e => {
+        if (e.lengthComputable) setStatus('傳送檔案中 ' + Math.floor(e.loaded / e.total * 100) + '%');
+      };
+      x.onload = () => {
+        let r = {};
+        try { r = JSON.parse(x.responseText); } catch (e) {}
+        (x.status < 300 && r.id) ? ok(r) : bad(new Error(r.error || '檔案傳送失敗'));
+      };
+      x.onerror = () => bad(new Error('檔案傳送中斷，請確認程式還在執行'));
+      x.send(f);
+    });
+    poll(j.id);
+  } catch (e) { fail(e.message); }
+}
 
 $('#go').addEventListener('click', start);
 $('#url').addEventListener('keydown', e => { if (e.key === 'Enter') start(); });

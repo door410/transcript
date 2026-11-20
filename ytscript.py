@@ -613,6 +613,8 @@ def download_audio(url, log, low_data=True, info=None):
     對辨識準確度幾乎沒有幫助，卻會多耗好幾倍的行動數據。
     """
     import tempfile
+    if info and info.get("_local_audio"):          # local-files：檔案已在本機
+        return info["_local_audio"], tempfile.mkdtemp(prefix="audio_"), 0, None
     import yt_dlp
 
     est = estimate_audio_mb(info, low_data)
@@ -1949,14 +1951,163 @@ def ensure_deps():
         return False
 
 
-def _run_job(job_id, url, opts):
+# ==========================================================================
+# 本機檔案（只有 local-files 版本有）
+#   瀏覽器把檔案傳進暫存資料夾 → ffmpeg 只抽出 16kHz 單聲道音訊並立刻刪掉原檔
+#   → 交給既有的 AI 聽寫（engine_whisper／engine_whispercpp）→ 刪掉整個暫存資料夾
+# ==========================================================================
+
+UPLOAD_SPARE = 200 * 1048576     # 抽出來的音訊 + 聽寫暫存，一小時約 60 MB，多留一些
+
+
+def upload_space_error(size):
+    """空間不夠時回傳給使用者看的訊息；夠就回傳 None。"""
+    import shutil
+    import tempfile
+    free = shutil.disk_usage(tempfile.gettempdir()).free
+    need = int(size) + UPLOAD_SPARE
+    if free >= need:
+        return None
+    return (f"儲存空間不夠：處理這個檔案需要約 {need / 1048576:,.0f} MB，"
+            f"但只剩 {free / 1048576:,.0f} MB。\n\n請先清出一些空間，或改用比較小的檔案"
+            "（例如只傳錄音檔，不要傳影片）。")
+
+
+def media_duration(path):
+    """檔案長度（秒），拿不到就回傳 0。只用來預估時間和顯示進度。"""
+    import shutil
+    import subprocess
+    probe = shutil.which("ffprobe")
+    if probe:
+        try:
+            r = subprocess.run([probe, "-v", "error", "-show_entries", "format=duration",
+                                "-of", "default=nw=1:nk=1", path],
+                               capture_output=True, text=True, timeout=60)
+            return float(r.stdout.strip() or 0)
+        except Exception:
+            pass
+    try:
+        import av                        # faster-whisper 內附，電腦沒裝 ffmpeg 時用
+        with av.open(path) as c:
+            return float(c.duration or 0) / 1e6
+    except Exception:
+        return 0.0
+
+
+def extract_audio(path, log):
+    """有 ffmpeg：抽出 16kHz 單聲道 FLAC（無損，一小時約 60 MB），刪掉原檔。
+    沒有 ffmpeg（電腦上常見）：直接用原檔，faster-whisper 自己讀得了。"""
+    import shutil
+    import subprocess
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return path
+    log("正在從檔案取出聲音…")
+    out = os.path.join(os.path.dirname(path), "audio.flac")
+    r = subprocess.run([ffmpeg, "-y", "-v", "error", "-i", path, "-vn", "-ac", "1",
+                        "-ar", "16000", "-c:a", "flac", out],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if r.returncode != 0 or not os.path.exists(out) or os.path.getsize(out) < 1024:
+        raise RuntimeError("這個檔案讀不到聲音，可能不是影片或錄音檔，或檔案已損壞。\n\n"
+                           "技術細節：" + (r.stderr or "")[-300:])
+    os.remove(path)                      # 原檔副本用不到了，立刻釋放空間
+    return out
+
+
+def transcribe_local(path, opts, log=print):
+    """處理一個上傳進來的檔案。path 一定是 handle_upload 建的暫存檔。"""
+    import shutil
+    updir = os.path.dirname(path)
+    name = opts.get("file_name") or os.path.basename(path)
+    try:
+        audio = extract_audio(path, log)
+        dur = media_duration(audio)
+        info = {"title": name, "duration": dur, "_local_audio": audio}
+        mdl = opts.get("whisper_model")
+        bits = ["本機檔案，用 AI 聽寫"]
+        if dur:
+            bits.append(f"預計 {eta_text(dur, mdl or default_model_size())}")
+        log("｜".join(bits) + "（全程在本機運算）")
+        order = ([engine_whispercpp] if IS_TERMUX
+                 else [engine_whisper, engine_whispercpp])
+        segments, sub_meta, errors = None, None, []
+        for fn in order:
+            try:
+                segments, sub_meta = fn(audio, opts.get("langs") or DEFAULT_LANGS, log,
+                                        model_size=mdl, info=info,
+                                        lang=opts.get("whisper_lang") or None)
+                if not segments:         # 跑完了但一句話都沒聽到，換引擎也一樣
+                    raise RuntimeError("這個檔案裡沒有聽到說話的聲音"
+                                       "（可能是純音樂、靜音，或聲音太小）。")
+                break
+            except Exception as e:
+                if "沒有聽到說話" in str(e):
+                    raise
+                errors.append(f"{fn.__name__} {type(e).__name__}: {str(e)[:250]}")
+        if not segments:
+            raise RuntimeError("無法把這個檔案轉成逐字稿。\n\n" + "\n".join(errors))
+        if str((sub_meta or {}).get("lang") or "").lower().startswith("zh"):
+            segments = to_traditional(segments, log)
+        meta = {"title": os.path.splitext(name)[0], "platform": "本機檔案",
+                "duration": dur or None, "url": "本機檔案 " + name, "local": True}
+        log(f"取得 {len(segments)} 段原始字幕，整理中…")
+        return assemble(meta, segments, sub_meta, opts, log)
+    finally:
+        shutil.rmtree(updir, ignore_errors=True)     # 成功失敗都清掉
+
+
+def handle_upload(handler):
+    """POST /api/upload：本體是檔案原始內容，檔名和選項放在標頭（網址編碼）。"""
+    import shutil
+    import tempfile
+
+    def send(code, obj):
+        return handler._send(code, json.dumps(obj, ensure_ascii=False))
+
+    n = int(handler.headers.get("Content-Length") or 0)
+    if n <= 0:
+        return send(400, {"error": "沒有收到檔案"})
+    try:
+        name = os.path.basename(urllib.parse.unquote(
+            handler.headers.get("X-File-Name") or "")) or "本機檔案"
+        opts = json.loads(urllib.parse.unquote(handler.headers.get("X-Options") or "{}"))
+    except Exception as e:
+        handler.close_connection = True
+        return send(400, {"error": f"請求格式錯誤：{e}"})
+    updir = tempfile.mkdtemp(prefix="upload_")
+    ext = re.sub(r"[^A-Za-z0-9.]", "", os.path.splitext(name)[1])[:10]
+    path = os.path.join(updir, "source" + ext)
+    try:
+        left = n
+        with open(path, "wb") as f:
+            while left > 0:
+                chunk = handler.rfile.read(min(left, 1048576))
+                if not chunk:
+                    raise IOError("檔案傳到一半中斷了")
+                f.write(chunk)
+                left -= len(chunk)
+    except Exception as e:
+        shutil.rmtree(updir, ignore_errors=True)
+        handler.close_connection = True
+        return send(400, {"error": f"檔案沒有傳完整：{e}"})
+    opts["file_name"] = name
+    jid = uuid.uuid4().hex[:12]
+    with JOBS_LOCK:
+        JOBS[jid] = {"status": "running", "log": [], "result": None,
+                     "error": None, "t": time.time()}
+    threading.Thread(target=_run_job, args=(jid, path, opts, transcribe_local),
+                     daemon=True).start()
+    return send(200, {"id": jid})
+
+
+def _run_job(job_id, url, opts, work=None):
     def log(msg):
         with JOBS_LOCK:
             j = JOBS.get(job_id)
             if j:
                 j["log"].append(str(msg))
     try:
-        result = transcribe(url, opts, log=log)
+        result = (work or transcribe)(url, opts, log=log)
         with JOBS_LOCK:
             j = JOBS.get(job_id)            # 可能已被清掉，不能直接 [] 取值
             if j:
@@ -1994,6 +2145,11 @@ class Handler(BaseHTTPRequestHandler):
             if body is None:
                 return self._send(500, "找不到 ui.html", "text/plain; charset=utf-8")
             return self._send(200, body, "text/html; charset=utf-8")
+
+        if path == "/api/upload-check":           # local-files：先確認空間夠不夠
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            err = upload_space_error(int((qs.get("size") or ["0"])[0] or 0))
+            return self._send(200, json.dumps({"error": err}, ensure_ascii=False))
 
         if path == "/api/status":
             qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
@@ -2035,6 +2191,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, json.dumps({"ok": True}))
             threading.Timer(0.3, lambda: SERVER and SERVER.shutdown()).start()
             return
+
+        if path == "/api/upload":                 # local-files
+            return handle_upload(self)
 
         if path != "/api/start":
             return self._send(404, json.dumps({"error": "not found"}))

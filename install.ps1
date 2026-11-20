@@ -1,6 +1,7 @@
 # transcript - Windows one-line install / update. PURE ASCII ONLY.
 #
 #   irm https://raw.githubusercontent.com/door410/transcript/main/install.ps1 | iex
+#   (local-files version: same line with main replaced by local-files)
 #
 # First run : installs Python + Git if missing (winget), clones to
 #             %USERPROFILE%\transcript, runs the setup .bat, makes the desktop shortcut.
@@ -9,7 +10,7 @@
 # Each branch's copy of this file sets $Branch to itself, so running the other
 # branch's command switches the installed copy to that version.
 $ErrorActionPreference = 'Continue'
-$Branch = 'main'
+$Branch = 'local-files'
 $Repo = 'https://github.com/door410/transcript.git'
 $Dir  = Join-Path $env:USERPROFILE 'transcript'
 $Old  = Join-Path $env:USERPROFILE 'yt-transcript'
