@@ -1,4 +1,4 @@
-' YouTube Transcript Tool - silent launcher (no console window)
+' transcript - silent launcher (no console window)
 ' NOTE: This file must stay pure ASCII. cmd/wscript read it with the
 ' system ANSI codepage (950 here), so non-ASCII bytes corrupt parsing.
 Option Explicit
@@ -11,7 +11,7 @@ base   = fso.GetParentFolderName(WScript.ScriptFullName)
 script = base & "\ytscript.py"
 
 If Not fso.FileExists(script) Then
-    MsgBox "Cannot find ytscript.py next to this launcher.", 16, "YouTube Transcript Tool"
+    MsgBox "Cannot find ytscript.py next to this launcher.", 16, "transcript"
     WScript.Quit 1
 End If
 
@@ -19,7 +19,7 @@ exe = FindPythonW()
 If exe = "" Then
     MsgBox "Python was not found." & vbCrLf & vbCrLf & _
            "Install it from https://www.python.org/downloads/" & vbCrLf & _
-           "and tick 'Add Python to PATH' during setup.", 16, "YouTube Transcript Tool"
+           "and tick 'Add Python to PATH' during setup.", 16, "transcript"
     WScript.Quit 1
 End If
 

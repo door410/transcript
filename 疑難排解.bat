@@ -1,7 +1,7 @@
 @echo off
 rem Pure ASCII only - the system codepage here is 950 (Big5) and
 rem UTF-8 Chinese bytes would corrupt this file's line parsing.
-title YouTube Transcript Tool - Diagnostics
+title transcript - Diagnostics
 cd /d "%~dp0"
 echo.
 echo   Running with a visible console so you can read any error.

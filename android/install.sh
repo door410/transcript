@@ -1,6 +1,6 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # =====================================================================
-#  YouTube 逐字稿工具 — 手機版全新安裝腳本
+#  transcript — 手機版全新安裝腳本
 #
 #  用法：在 Termux 執行
 #      pkg install -y git
@@ -250,13 +250,8 @@ STARTER
 chmod +x "$DEST"/*.sh 2>/dev/null
 say "  啟動器：$DEST/start.sh（執行的是 $APP 裡的程式）"
 
-mkdir -p "$HOME/.shortcuts"
-cat > "$HOME/.shortcuts/YouTube-Transcript.sh" <<'EOF'
-#!/data/data/com.termux/files/usr/bin/bash
-exec bash "$HOME/ytscript/start.sh"
-EOF
-chmod +x "$HOME/.shortcuts/YouTube-Transcript.sh"
-say "  桌面捷徑腳本已建立（需搭配 Termux:Widget）"
+bash "$HERE/shortcuts.sh" >>"$LOG" 2>&1
+say "  指令 transcript 與桌面捷徑 transcript 已建立（捷徑需搭配 Termux:Widget）"
 
 # ---------------------------------------------------------------------
 say ""
@@ -301,11 +296,11 @@ say "======================================================"
 if [ "$FAIL" = "0" ]; then
   say "  安裝完成。"
   say ""
-  say "  啟動：  bash ~/ytscript/start.sh"
+  say "  啟動：  transcript"
   say "  然後瀏覽器開  127.0.0.1:8756"
   say ""
   say "  桌面圖示與「加入主畫面」：見 安裝指南.md 第 3 節。"
-  say "  之後更新程式：cd ~/transcript && git pull，再重新啟動即可。"
+  say "  之後更新：git -C ~/transcript pull && bash ~/transcript/android/shortcuts.sh"
 else
   say "  有項目未通過（上面標示失敗的那幾行）。"
   say "  完整記錄在 $LOG"

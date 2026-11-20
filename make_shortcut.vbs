@@ -5,7 +5,9 @@ Set sh  = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
 base = fso.GetParentFolderName(WScript.ScriptFullName)
 
-Set lnk = sh.CreateShortcut(sh.SpecialFolders("Desktop") & "\YouTube Transcript.lnk")
+Dim old: old = sh.SpecialFolders("Desktop") & "\YouTube Transcript.lnk"
+If fso.FileExists(old) Then fso.DeleteFile old
+Set lnk = sh.CreateShortcut(sh.SpecialFolders("Desktop") & "\transcript.lnk")
 lnk.TargetPath       = sh.ExpandEnvironmentStrings("%SystemRoot%") & "\System32\wscript.exe"
 lnk.Arguments        = """" & base & "\start.vbs"""
 lnk.WorkingDirectory = base

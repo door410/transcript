@@ -1,6 +1,12 @@
-# YouTube 逐字稿 → AI
+# transcript
 
-> **要安裝嗎？** 三台裝置（電腦／筆電／Android）的完整步驟見
+> **安裝／更新都只要一行指令** → **[安裝與更新.md](安裝與更新.md)**
+>
+> - 電腦（PowerShell，安裝與更新同一行）：`irm https://raw.githubusercontent.com/door410/transcript/main/install.ps1 | iex`
+> - 手機安裝（Termux）：`pkg install -y git && git clone https://github.com/door410/transcript ~/transcript && bash ~/transcript/android/install.sh`
+> - 手機更新（Termux）：`git -C ~/transcript pull && bash ~/transcript/android/shortcuts.sh`
+>
+> **詳細說明？** 三台裝置（電腦／筆電／Android）的完整步驟見
 > **[安裝指南.md](安裝指南.md)**。每台各自獨立安裝、獨立運行。
 >
 > **要維護、修改、除錯？** 從 **[docs/維護手冊/00_從這裡開始.md](docs/維護手冊/00_從這裡開始.md)** 開始。
@@ -16,7 +22,7 @@
 
 ### 電腦
 
-**雙擊桌面上的「YouTube 逐字稿工具」圖示。**
+**雙擊桌面上的「transcript」圖示。**
 
 瀏覽器會自動打開，沒有任何黑色視窗。貼上連結 → 按「開始轉錄」→ 按「複製全部給 AI」→ 貼到 Claude／ChatGPT／Gemini。
 

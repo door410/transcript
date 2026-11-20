@@ -1905,7 +1905,7 @@ def ensure_deps():
     try:
         import tkinter as tk
         win = tk.Tk()
-        win.title("YouTube 逐字稿工具")
+        win.title("transcript")
         win.geometry("400x130")
         win.resizable(False, False)
         win.eval("tk::PlaceWindow . center")
@@ -2157,7 +2157,7 @@ def serve(open_browser=True):
 
     print()
     print("  ┌─────────────────────────────────────────────┐")
-    print("  │   YouTube 逐字稿工具  已啟動                │")
+    print("  │   transcript  已啟動                        │")
     print("  └─────────────────────────────────────────────┘")
     print()
     print(f"   在瀏覽器開啟：  http://localhost:{port}")

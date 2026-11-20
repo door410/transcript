@@ -42,13 +42,13 @@ FILES = [
 ]
 
 READ_ME_FIRST = """\
-YouTube 逐字稿工具 — 電腦版
+transcript — 電腦版
 ================================
 
 安裝步驟
 --------
 1. 把這個資料夾整個解壓縮到你想放的位置
-   （建議 C:\\Users\\你的帳號\\yt-transcript，不要放在 Google Drive 裡）
+   （建議 C:\\Users\\你的帳號\\transcript，不要放在 Google Drive 裡）
 2. 先確認有裝 Python：https://www.python.org/downloads/
    安裝時務必勾選「Add Python to PATH」
 3. 雙擊「安裝.bat」
@@ -79,7 +79,7 @@ def main():
 
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
         for name in FILES:
-            z.write(os.path.join(ROOT, name), "yt-transcript/" + name)
+            z.write(os.path.join(ROOT, name), "transcript/" + name)
         # .bat 與 .vbs 必須是 CRLF，zipfile 不會動內容，這裡直接檢查而非轉換
         for name in FILES:
             if name.endswith((".bat", ".vbs")):
@@ -89,7 +89,7 @@ def main():
                     raise SystemExit(f"{name} 不是 CRLF 行尾，Windows 上會出錯")
                 if any(b > 127 for b in raw):
                     raise SystemExit(f"{name} 含非 ASCII 位元組，Big5 環境下會壞掉")
-        z.writestr("yt-transcript/先讀我.txt",
+        z.writestr("transcript/先讀我.txt",
                    READ_ME_FIRST.replace("\n", "\r\n").encode("utf-8-sig"))
 
     print("  產生 %s（%.0f KB）" % (os.path.relpath(out, ROOT),

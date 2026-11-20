@@ -1,6 +1,6 @@
 {
-  "name": "YouTube 逐字稿 → AI",
-  "short_name": "逐字稿",
+  "name": "transcript",
+  "short_name": "transcript",
   "description": "把影片連結轉成為 AI 分析最佳化的逐字稿",
   "start_url": "/",
   "scope": "/",
