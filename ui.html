@@ -613,12 +613,23 @@ syncClear();
 let pickedFile = null;
 const fileIn = $('#fileIn');
 $('#btnFile').addEventListener('click', () => fileIn.click());
-// 位置跟著「自訂提示詞」的實際寬度，換字型也不會疊在一起
+// 對齊「自訂提示詞」：量兩邊「文字本身」的實際位置再補差距。
+// 只對齊外框不夠 —— 各裝置字型的行高、▸ 的字型都不同，文字會上下差幾像素。
+const textBox = el => {
+  const r = document.createRange();
+  r.selectNodeContents(el.lastChild);      // 最後一個子節點就是文字（▸ 是 ::before，不算）
+  return r.getBoundingClientRect();
+};
 const placePick = () => {
-  const w = $('#pset summary').offsetWidth;
-  if (w) $('#btnFile').style.left = (w + 20) + 'px';
+  const s = $('#pset summary'), b = $('#btnFile');
+  if (!s.offsetWidth) return;              // 「選項」收起時量不到，展開時再量
+  b.style.left = (s.offsetLeft + s.offsetWidth + 20) + 'px';
+  b.style.top = s.offsetTop + 'px';
+  const dy = textBox(s).top - textBox(b).top;
+  b.style.top = (s.offsetTop + dy) + 'px';
 };
 document.querySelector('details.opts').addEventListener('toggle', placePick);
+addEventListener('resize', placePick);
 if (document.fonts) document.fonts.ready.then(placePick);
 fileIn.addEventListener('change', () => {
   const f = fileIn.files[0];
