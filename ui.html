@@ -121,6 +121,10 @@ details.pset{margin-top:var(--space-2)}
 details.pset summary{cursor:pointer; list-style:none; display:inline-block;
   font-size:12px; opacity:.6; user-select:none}
 details.pset summary::-webkit-details-marker{display:none}
+/* ▸ 沿用「選項」的符號；設成 inline-block 才轉得動，展開時轉成朝下 */
+details.pset summary::before{display:inline-block; margin-right:.6em}
+details.pset:not([open]) summary::before{transform:none}   /* 蓋過「選項」展開時的旋轉 */
+details.pset[open] summary::before{transform:rotate(90deg)}
 details.pset summary:hover{opacity:1}
 .pbody{display:grid; gap:var(--space-2); margin-top:var(--space-2)}
 .pbody select,.pbody textarea{width:100%; box-sizing:border-box; font:inherit;
@@ -194,7 +198,7 @@ details.pset summary:hover{opacity:1}
           </div>
           <p class="fi-small fi-muted opthint" id="promptHint"></p>
           <details class="pset" id="pset">
-            <summary>✎ 自訂提示詞</summary>
+            <summary>自訂提示詞</summary>
             <div class="pbody">
               <select id="pSel" aria-label="提示詞版本"></select>
               <textarea id="pText" spellcheck="false" aria-label="提示詞內容"></textarea>

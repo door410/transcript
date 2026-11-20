@@ -5,7 +5,11 @@
 # First run : installs Python + Git if missing (winget), clones to
 #             %USERPROFILE%\transcript, runs the setup .bat, makes the desktop shortcut.
 # Later runs: git pull + refresh the desktop shortcut. Same command.
+# Two versions: branch 'main' (URLs only) and 'local-files' (also local files).
+# Each branch's copy of this file sets $Branch to itself, so running the other
+# branch's command switches the installed copy to that version.
 $ErrorActionPreference = 'Continue'
+$Branch = 'main'
 $Repo = 'https://github.com/door410/transcript.git'
 $Dir  = Join-Path $env:USERPROFILE 'transcript'
 $Old  = Join-Path $env:USERPROFILE 'yt-transcript'
@@ -46,7 +50,14 @@ if (-not (Has 'git') -or -not (Has 'python')) {
 }
 
 if (Test-Path (Join-Path $Dir '.git')) {
-  Say 'Updating...'
+  Say "Updating ($Branch)..."
+  git -C $Dir fetch origin
+  $cur = git -C $Dir rev-parse --abbrev-ref HEAD
+  if ($cur -ne $Branch) {
+    Say "Switching version: $cur -> $Branch"
+    git -C $Dir checkout $Branch
+    if ($LASTEXITCODE -ne 0) { Say '[ERROR] switch failed (see message above).'; return }
+  }
   git -C $Dir pull --ff-only
   if ($LASTEXITCODE -ne 0) { Say '[ERROR] git pull failed (see message above).'; return }
   python -m pip install --quiet --upgrade -r (Join-Path $Dir 'requirements\core.txt')
@@ -55,7 +66,7 @@ if (Test-Path (Join-Path $Dir '.git')) {
   Say 'desktop shortcut "transcript".'
 } else {
   Say "Downloading to $Dir ..."
-  git clone $Repo $Dir
+  git clone -b $Branch $Repo $Dir
   if ($LASTEXITCODE -ne 0) { Say '[ERROR] git clone failed.'; return }
   # The setup .bat has a Chinese file name; pick it by its pure-ASCII marker line.
   $bat = Get-ChildItem $Dir -Filter *.bat |
