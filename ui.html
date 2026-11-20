@@ -116,6 +116,17 @@ details.opts[open] summary::before{transform:rotate(90deg)}
 .optbody .fi-seg__btn{min-width:0; padding-inline:4px; white-space:nowrap;
   font-size:clamp(12px, 3.6vw, 13px); letter-spacing:.02em}
 .opthint{margin-top:var(--space-2)}
+/* 自訂提示詞：預設收起，只露出一行小字 */
+details.pset{margin-top:var(--space-2)}
+details.pset summary{cursor:pointer; list-style:none; display:inline-block;
+  font-size:12px; opacity:.6; user-select:none}
+details.pset summary::-webkit-details-marker{display:none}
+details.pset summary:hover{opacity:1}
+.pbody{display:grid; gap:var(--space-2); margin-top:var(--space-2)}
+.pbody select,.pbody textarea{width:100%; box-sizing:border-box; font:inherit;
+  font-size:13px; padding:6px 8px; border:var(--border); background:transparent; color:inherit}
+.pbody textarea{min-height:180px; resize:vertical; font-family:var(--font-mono); line-height:1.5}
+.pbtns{display:flex; gap:var(--space-2); flex-wrap:wrap}
 
 /* ---- 結果 ---- */
 .badges{display:flex; gap:var(--space-2); flex-wrap:wrap; margin-top:var(--space-3)}
@@ -172,6 +183,19 @@ details.opts[open] summary::before{transform:rotate(90deg)}
             <button class="fi-seg__btn" data-v="none">純逐字稿</button>
           </div>
           <p class="fi-small fi-muted opthint" id="promptHint"></p>
+          <details class="pset" id="pset">
+            <summary>✎ 自訂提示詞</summary>
+            <div class="pbody">
+              <select id="pSel" aria-label="提示詞版本"></select>
+              <textarea id="pText" spellcheck="false" aria-label="提示詞內容"></textarea>
+              <div class="pbtns">
+                <button class="fi-btn fi-btn--sm fi-btn--primary" id="pSave" disabled>儲存</button>
+                <button class="fi-btn fi-btn--sm" id="pNew">另存新版本</button>
+                <button class="fi-btn fi-btn--sm fi-btn--ghost" id="pDel">刪除</button>
+              </div>
+              <p class="fi-small fi-muted" id="pNote"></p>
+            </div>
+          </details>
         </div>
       </div>
     </details>
@@ -276,10 +300,68 @@ const PROMPT_HINTS = {
   quick: '精簡版：一句話總結 + 五個重點 + 值得回看的片段 + 一個行動。想快速判斷影片值不值得深入時用。',
   none:  '只給逐字稿本身，不附任何指示。你想自己下提示詞時用。',
 };
-function syncHint() {
-  $('#promptHint').textContent = PROMPT_HINTS[segVal('#segPrompt')];
+// ---- 自訂提示詞（多版本，存在這台裝置的瀏覽器裡）----
+// 版本清單 pv = [{id, name, text}]；pActive = 目前套用的 id，'' 表示用內建。
+// 套用方式：把逐字稿裡內建提示詞那段原文換成選定版本，所以換版本不必重新轉錄。
+let BUILTIN = {};
+const lsGet = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+let pv = lsGet('promptVersions', []), pActive = lsGet('promptActive', '');
+if (!pv.some(v => v.id === pActive)) pActive = '';
+const curVer = () => pv.find(v => v.id === pActive);
+
+function applyPrompt(text) {
+  const v = curVer(), orig = data && data.prompt_text;
+  if (!v || !orig || !text) return text;
+  return text.split(orig).join(v.text.trim() + String.fromCharCode(10));
 }
-$('#segPrompt').addEventListener('click', e => { if (e.target.closest('.fi-seg__btn')) syncHint(); });
+function pLoad() {
+  const sel = $('#pSel'), v = curVer();
+  sel.innerHTML = '<option value="">內建（跟著分析模式）</option>' +
+    pv.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('');
+  sel.value = pActive;
+  const mode = segVal('#segPrompt');
+  $('#pText').value = v ? v.text : (BUILTIN[mode] || BUILTIN.deep || '');
+  $('#pText').readOnly = !v;
+  $('#pSave').disabled = true;
+  $('#pDel').hidden = !v;
+  $('#pNote').textContent = v
+    ? '複製與下載都會套用這個版本（「純逐字稿」模式不附提示詞）。改完按「儲存」。'
+    : '內建版本不能直接改。要修改請按「另存新版本」，建立你自己的一份。';
+  syncHint();
+}
+function pChanged() { if (data) render(); }
+$('#pset').addEventListener('toggle', () => { if ($('#pset').open) pLoad(); });
+$('#pSel').addEventListener('change', e => {
+  pActive = e.target.value; lsSet('promptActive', pActive); pLoad(); pChanged();
+});
+$('#pText').addEventListener('input', () => {
+  const v = curVer(); $('#pSave').disabled = !v || $('#pText').value === v.text;
+});
+$('#pSave').addEventListener('click', () => {
+  const v = curVer(); if (!v) return;
+  v.text = $('#pText').value; lsSet('promptVersions', pv); pLoad(); pChanged();
+  $('#pNote').textContent = '已儲存 ✓';
+});
+$('#pNew').addEventListener('click', () => {
+  const name = (prompt('新版本的名稱：', `我的提示詞 ${pv.length + 1}`) || '').trim();
+  if (!name) return;
+  const v = { id: 'p' + Date.now(), name, text: $('#pText').value };
+  pv.push(v); pActive = v.id;
+  lsSet('promptVersions', pv); lsSet('promptActive', pActive); pLoad(); pChanged();
+});
+$('#pDel').addEventListener('click', () => {
+  const v = curVer(); if (!v || !confirm(`刪除「${v.name}」？`)) return;
+  pv = pv.filter(x => x !== v); pActive = '';
+  lsSet('promptVersions', pv); lsSet('promptActive', ''); pLoad(); pChanged();
+});
+
+function syncHint() {
+  const cv = typeof curVer === 'function' && curVer();
+  $('#promptHint').textContent = PROMPT_HINTS[segVal('#segPrompt')] +
+    (cv && segVal('#segPrompt') !== 'none' ? `（目前套用自訂：${cv.name}）` : '');
+}
+$('#segPrompt').addEventListener('click', e => { if (e.target.closest('.fi-seg__btn')) { syncHint(); if (!curVer()) pLoad(); } });
 syncHint();
 
 function options() {
@@ -371,20 +453,20 @@ function done(res) {
 }
 
 function render() {
-  $('#out').value = data ? (tab in edits ? edits[tab] : data[tab]) : '';
+  $('#out').value = data ? (tab in edits ? edits[tab] : applyPrompt(data[tab])) : '';
   $('#btnRestore').hidden = !(tab in edits);
 }
 
 // 目前這個分頁該拿去複製／下載的文字：改過就用改過的
 function textOf(which) {
   if (!data) return '';
-  return (which in edits) ? edits[which] : data[which];
+  return (which in edits) ? edits[which] : applyPrompt(data[which]);
 }
 
 $('#out').addEventListener('input', () => {
   if (!data) return;
   const v = $('#out').value;
-  if (v === data[tab]) delete edits[tab];   // 改回原樣就當作沒改過
+  if (v === applyPrompt(data[tab])) delete edits[tab];   // 改回原樣就當作沒改過
   else edits[tab] = v;
   $('#btnRestore').hidden = !(tab in edits);
 });
@@ -409,9 +491,9 @@ function renderParts(parts) {
   ).join('');
   $('#partsList').querySelectorAll('.fi-btn').forEach(b => {
     b.addEventListener('click', async () => {
-      const p = parts[+b.dataset.i];
-      try { await navigator.clipboard.writeText(p.markdown); }
-      catch { const ta=document.createElement('textarea'); ta.value=p.markdown;
+      const p = parts[+b.dataset.i], md = applyPrompt(p.markdown);
+      try { await navigator.clipboard.writeText(md); }
+      catch { const ta=document.createElement('textarea'); ta.value=md;
               ta.style.position='fixed'; ta.style.opacity='0';
               document.body.appendChild(ta); ta.select();
               document.execCommand('copy'); ta.remove(); }
@@ -482,8 +564,9 @@ $('#url').addEventListener('keydown', e => { if (e.key === 'Enter') start(); });
 
 // 心跳：讓程式知道還有人在用。關掉分頁幾分鐘後伺服器會自動結束，
 // 這樣就不會每按一次桌面捷徑就多留一個永遠不關的背景程序。
-const ping = () => fetch('/api/ping').catch(() => {});
-ping();
+const ping = () => fetch('/api/ping').then(r => r.json()).catch(() => null);
+// 第一次心跳順便取回內建提示詞，給「自訂提示詞」當範本
+ping().then(j => { if (j && j.prompts) { BUILTIN = j.prompts; pLoad(); } });
 setInterval(ping, 30000);   // 伺服器閒置 5 分鐘才結束，30 秒一次綽綽有餘
 
 // 明暗切換。點一下就換成和目前畫面相反的模式，並記住選擇

@@ -1747,6 +1747,9 @@ def assemble(meta, segments, sub_meta, opts, log=print):
         "plaintext": plaintext,
         "srt": build_srt(cleaned),
         "parts": parts,
+        # 前端「自訂提示詞」會把這段原文換成使用者選的版本
+        "prompt_text": PROMPTS.get(opts.get("prompt_mode", "deep"), "")
+                       if opts.get("include_prompt", True) else "",
         "stats": {
             "segments": len(segments),
             "paragraphs": len(paras),
@@ -2055,7 +2058,8 @@ class Handler(BaseHTTPRequestHandler):
             # 介面靠這兩個欄位顯示對應裝置的「快速／準確」說明
             return self._send(200, json.dumps({
                 "ok": True, "phone": IS_TERMUX, "build": BUILD,
-                "accurate_model": phone_accurate_model() if IS_TERMUX else None}))
+                "accurate_model": phone_accurate_model() if IS_TERMUX else None,
+                "prompts": PROMPTS}))
 
         return self._send(404, json.dumps({"error": "not found"}))
 
