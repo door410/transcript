@@ -1,15 +1,15 @@
 @echo off
 rem ============================================================
-rem  YouTube Transcript Tool - Setup
+rem  transcript - Setup
 rem  PURE ASCII ONLY. The system codepage is 950 (Big5) here;
 rem  UTF-8 Chinese bytes corrupt this file's line parsing.
 rem  That is also why every filename this script touches is ASCII.
 rem ============================================================
-title YouTube Transcript Tool - Setup
+title transcript - Setup
 cd /d "%~dp0"
 echo.
 echo   ============================================
-echo    YouTube Transcript Tool - Setup
+echo    transcript - Setup
 echo   ============================================
 echo.
 
