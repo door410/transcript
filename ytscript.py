@@ -88,7 +88,7 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
 
 PROMPT_DEEP = """\
-你是一位善於拆解知識型內容的學習夥伴。以下是一部 YouTube 影片的完整逐字稿。
+你是一位善於拆解知識型內容的學習夥伴。以下是一部影片的完整逐字稿。
 請依照下列三個部分回答，全程使用繁體中文。
 
 **最重要的規則：嚴格區分「作者說的」與「你的看法」。**
@@ -154,7 +154,7 @@ PROMPT_DEEP = """\
 """
 
 PROMPT_QUICK = """\
-以下是一部 YouTube 影片的逐字稿。請用繁體中文做一份精簡的重點整理：
+以下是一部影片的逐字稿。請用繁體中文做一份精簡的重點整理：
 
 1. **一句話總結**
 2. **五個核心重點** —— 依照作者原本的講述順序排列，每點附上時間戳
@@ -168,7 +168,7 @@ PROMPT_QUICK = """\
 PROMPTS = {"deep": PROMPT_DEEP, "quick": PROMPT_QUICK}
 AI_PROMPT = PROMPT_DEEP  # 向後相容
 
-CAPTION_NOTE = ("注意：以下逐字稿由 YouTube **自動語音辨識**產生，可能有錯字、"
+CAPTION_NOTE = ("注意：以下逐字稿由影片網站的**自動語音辨識**產生，可能有錯字、"
                 "同音字誤植或斷句錯誤。請依上下文合理推斷作者真正的意思，"
                 "不要拘泥於字面用字。")
 
@@ -180,7 +180,7 @@ CAPTION_NOTE = ("注意：以下逐字稿由 YouTube **自動語音辨識**產�
 def extract_video_id(url_or_id):
     s = (url_or_id or "").strip()
     if not s:
-        raise ValueError("請先貼上 YouTube 連結")
+        raise ValueError("請先貼上影片連結")
     if re.fullmatch(r"[A-Za-z0-9_-]{11}", s):
         return s
     for p in (r"youtu\.be/([A-Za-z0-9_-]{11})",
@@ -192,7 +192,7 @@ def extract_video_id(url_or_id):
         m = re.search(p, s)
         if m:
             return m.group(1)
-    raise ValueError("這看起來不是 YouTube 連結，請確認網址：" + s[:100])
+    raise ValueError("這看起來不是影片連結，請確認網址：" + s[:100])
 
 
 def normalize_target(url_or_id):
@@ -452,7 +452,7 @@ def fetch_with_retry(url, log, tries=3):
             last = e
             if e.code in (429, 503) and i < tries - 1:
                 wait = 3 * (i + 1)
-                log(f"YouTube 暫時限流，{wait} 秒後重試（第 {i + 2}/{tries} 次）")
+                log(f"影片網站暫時限流，{wait} 秒後重試（第 {i + 2}/{tries} 次）")
                 time.sleep(wait)
                 continue
             raise
@@ -1442,7 +1442,7 @@ def build_markdown(meta, paras, sub_meta, opts):
             L.append("\n" + CAPTION_NOTE)
         L.append("\n---\n")
 
-    title = meta.get("title") or "YouTube 影片逐字稿"
+    title = meta.get("title") or "影片逐字稿"
     L.append(f"# {title}\n")
 
     if opts.get("include_meta", True):
@@ -1456,7 +1456,7 @@ def build_markdown(meta, paras, sub_meta, opts):
             rows.append(("發布日期", meta["upload_date"]))
         if meta.get("duration"):
             rows.append(("影片長度", fmt_duration(meta["duration"])))
-        src = ("YouTube 自動字幕（語音辨識）" if sub_meta.get("generated")
+        src = ("網站自動字幕（語音辨識）" if sub_meta.get("generated")
                else "人工上傳字幕")
         if sub_meta.get("whisper"):
             src = "本機 AI 聽寫（Whisper）"
@@ -1494,7 +1494,7 @@ def build_plaintext(meta, paras, sub_meta, opts):
     ts_mode = opts.get("timestamps", "para")
     L = []
     if opts.get("include_meta", True):
-        L.append(meta.get("title") or "YouTube 影片逐字稿")
+        L.append(meta.get("title") or "影片逐字稿")
         if meta.get("channel"):
             L.append("頻道：" + meta["channel"])
         if meta.get("duration"):
@@ -1561,7 +1561,7 @@ def transcribe(url_or_id, opts=None, log=print):
             errors.append(f"引擎1 {type(e).__name__}: {str(e)[:150]}")
             log("主要管道未成功，切換備援…")
     else:
-        log("非 YouTube 連結，交給 yt-dlp 處理…")
+        log("交給 yt-dlp 處理…")
 
     # 取完結果立刻收掉。原本放在函式最尾端，中間任何一條 raise
     # （例如「有字幕但抓不到」那道防呆）都會讓這兩個執行緒留著不收。
@@ -1590,7 +1590,7 @@ def transcribe(url_or_id, opts=None, log=print):
         raise RuntimeError(
             "這部影片其實有字幕（" + "、".join(tracks) + " …），"
             "但現在下載不到。\n\n"
-            "原因幾乎都是 YouTube 暫時限制了這台電腦的請求次數（HTTP 429），"
+            "原因幾乎都是影片網站暫時限制了這台電腦的請求次數（HTTP 429），"
             "通常幾分鐘到一小時內會自動恢復。\n\n"
             "已自動略過 AI 聽寫 —— 這部影片有現成字幕，"
             "沒必要花幾十分鐘重新辨識。請稍後再試一次。\n\n"
@@ -2046,7 +2046,7 @@ class Handler(BaseHTTPRequestHandler):
 
         url = (data.get("url") or "").strip()
         if not url:
-            return self._send(400, json.dumps({"error": "請提供 YouTube 連結"},
+            return self._send(400, json.dumps({"error": "請提供影片連結"},
                                               ensure_ascii=False))
         opts = data.get("options") or {}
         jid = uuid.uuid4().hex[:12]
