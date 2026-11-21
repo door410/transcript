@@ -292,9 +292,11 @@ def t_local_server():
     sys.stdout = io.StringIO()          # 把啟動橫幅吞掉，免得輸出變亂
     try:
         th.start()
-        for _ in range(50):
-            if y.SERVER is not None:
-                break
+        # 最多等 30 秒。serve() 啟動前會連兩次「沒人在用的埠」（_replace_old_instance
+        # 問舊版、free_port 找空埠），Windows 上每次被拒都要約 2 秒才回來，加上載入
+        # 套件，實測 4.8～5.0 秒才就緒；原本只等 5 秒，在 Windows 上時過時不過。
+        deadline = time.time() + 30
+        while y.SERVER is None and time.time() < deadline:
             time.sleep(0.1)
     finally:
         sys.stdout = old
