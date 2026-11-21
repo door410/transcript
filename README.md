@@ -4,7 +4,7 @@
 >
 > - 電腦（PowerShell，安裝與更新同一行）：`irm https://raw.githubusercontent.com/door410/transcript/main/install.ps1 | iex`
 > - 手機安裝（Termux）：`pkg install -y git && git clone https://github.com/door410/transcript ~/transcript && bash ~/transcript/android/install.sh`
-> - 手機更新（Termux）：`git -C ~/transcript pull && bash ~/transcript/android/shortcuts.sh`
+> - 手機更新（Termux）：`git -C ~/transcript pull && pip install --upgrade -r ~/transcript/requirements/core.txt && bash ~/transcript/android/shortcuts.sh`
 >
 > **詳細說明？** 三台裝置（電腦／筆電／Android）的完整步驟見
 > **[安裝指南.md](安裝指南.md)**。每台各自獨立安裝、獨立運行。
