@@ -1534,6 +1534,23 @@ def build_srt(segments):
 # 主流程
 # ==========================================================================
 
+def _cache_good_enough(cached, opts):
+    """快取裡的結果，夠不夠這次要的品質。
+
+    快取以網址為鍵、不分「快速／準確」。先用「快速」（tiny）聽寫過的影片，
+    之後改選「準確」，原本會直接拿回 tiny 的結果 —— 使用者特地選了準確，
+    卻默默拿到快速版，而且介面沒有任何方法跳過快取。
+    只有「快取是 tiny 聽寫、這次要的不是 tiny」才重做；有字幕的影片（不是
+    AI 聽寫）、以及反方向（快取是準確版、這次選快速）都照用快取。
+    """
+    sm = cached.get("sub_meta") or {}
+    if not sm.get("whisper"):
+        return True
+    if str(sm.get("engine") or "").rsplit(" ", 1)[-1] != "tiny":
+        return True
+    return (opts.get("whisper_model") or default_model_size()) == "tiny"
+
+
 def transcribe(url_or_id, opts=None, log=print):
     opts = opts or {}
     langs = opts.get("langs") or DEFAULT_LANGS
@@ -1541,6 +1558,9 @@ def transcribe(url_or_id, opts=None, log=print):
 
     # --- 快取：同一部影片再處理一次時完全不耗流量 ---
     cached = None if opts.get("no_cache") else cache_load(url)
+    if cached and not _cache_good_enough(cached, opts):
+        log("快取裡是「快速」模式的聽寫結果，這次選了「準確」，重新聽寫…")
+        cached = None
     if cached:
         log("這部影片處理過了，直接用本機快取（不耗任何流量）")
         return assemble(cached["meta"], cached["segments"],

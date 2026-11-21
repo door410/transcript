@@ -262,6 +262,57 @@ def t_every_mode():
     return "模式：" + "、".join(list(y.PROMPTS) + ["none"])
 
 
+def t_cache_respects_accurate():
+    """先用「快速」聽寫過的影片，改選「準確」時要重新聽寫，不能直接拿快取的
+    tiny 結果（2026-11-21 體檢 S2）。離線：網路與聽寫引擎都換成假的，
+    快取放暫存資料夾，不碰真正的快取。"""
+    import shutil
+    import tempfile
+    import ytscript as y
+
+    names = ("cache_dir", "default_model_size", "engine_transcript_api",
+             "ytdlp_info", "oembed_meta", "engine_whisper", "engine_whispercpp")
+    saved = {n: getattr(y, n) for n in names}
+    tmp = tempfile.mkdtemp(prefix="selfcheck_cache_")
+    calls = []
+
+    def no_captions(*a, **k):
+        raise RuntimeError("沒有字幕（測試用）")
+
+    def fake_whisper(url, langs, log, model_size=None, **k):
+        size = model_size or y.default_model_size()
+        calls.append(size)
+        return ([{"text": f"{size} 的結果", "start": 0.0, "duration": 1.0}],
+                {"lang": "en", "generated": True, "whisper": True,
+                 "engine": f"faster-whisper {size}"})
+
+    try:
+        y.cache_dir = lambda: tmp
+        y.default_model_size = lambda: "small"
+        y.engine_transcript_api = no_captions
+        y.ytdlp_info = lambda url: {"title": "測試", "duration": 10,
+                                    "subtitles": {}, "automatic_captions": {}}
+        y.oembed_meta = lambda vid: {}
+        y.engine_whisper = y.engine_whispercpp = fake_whisper
+        url = "https://www.youtube.com/watch?v=AAAAAAAAAAA"
+        quiet = {"prompt_mode": "none"}
+
+        y.transcribe(url, dict(quiet, whisper_model="tiny"), log=lambda m: None)
+        expect(calls == ["tiny"], f"第一次（快速）應該聽寫一次 tiny，實際 {calls}")
+        y.transcribe(url, dict(quiet, whisper_model="tiny"), log=lambda m: None)
+        expect(calls == ["tiny"], f"再選快速應該直接用快取，實際又聽寫了 {calls[1:]}")
+        r = y.transcribe(url, dict(quiet, whisper_model=None), log=lambda m: None)
+        expect(calls == ["tiny", "small"],
+               f"改選準確應該重新聽寫（small），實際 {calls}，拿到「{r['sub_meta'].get('engine')}」")
+        y.transcribe(url, dict(quiet, whisper_model="tiny"), log=lambda m: None)
+        expect(len(calls) == 2, "快取已經是準確版，再選快速應該直接用快取")
+    finally:
+        for n, f in saved.items():
+            setattr(y, n, f)
+        shutil.rmtree(tmp, ignore_errors=True)
+    return "快速→準確會重新聽寫；其他情況照用快取"
+
+
 def t_ui_matches_backend():
     """介面上的按鈕和後端要對得上。新增分析模式時最容易漏改的地方。"""
     import re
@@ -443,6 +494,7 @@ def main():
         ("輸出結構（介面需要的欄位）", t_output_shape),
         ("每一種分析模式", t_every_mode),
         ("介面按鈕與後端一致", t_ui_matches_backend),
+        ("改選準確時不沿用快速版快取", t_cache_respects_accurate),
         ("本機伺服器與 API", t_local_server),
         ("其他網站不能操作本機伺服器", t_block_cross_site),
         ("這台機器的硬體路徑", t_device_report),
