@@ -5,7 +5,8 @@
 # First run : installs Python + Git if missing (winget), clones to
 #             %USERPROFILE%\transcript, runs the setup .bat, makes the desktop shortcut.
 # Later runs: git pull + refresh the desktop shortcut. Same command.
-# Two versions: branch 'main' (URLs only) and 'local-files' (also local files).
+# Three versions: 'main' (URLs), 'local-files' (also local files),
+# 'fast-only' (no fast/accurate choice, always fast).
 # Each branch's copy of this file sets $Branch to itself, so running the other
 # branch's command switches the installed copy to that version.
 $ErrorActionPreference = 'Continue'
