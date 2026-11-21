@@ -121,7 +121,14 @@ details.pset{margin-top:var(--space-2)}
 details.pset summary{cursor:pointer; list-style:none; display:inline-block;
   font-size:12px; opacity:.6; user-select:none}
 details.pset summary::-webkit-details-marker{display:none}
+/* ▸ 沿用「選項」的符號；設成 inline-block 才轉得動，展開時轉成朝下 */
+details.pset summary::before{display:inline-block; margin-right:.6em}
+details.pset:not([open]) summary::before{transform:none}   /* 蓋過「選項」展開時的旋轉 */
+details.pset[open] summary::before{transform:rotate(90deg)}
 details.pset summary:hover{opacity:1}
+/* 「備份」包在「自訂提示詞」裡面：箭頭只看自己有沒有展開（外層展開時不要跟著轉） */
+details.pset.pbak:not([open]) > summary::before{transform:none}
+details.pset.pbak[open] > summary::before{transform:rotate(90deg)}
 .pbody{display:grid; gap:var(--space-2); margin-top:var(--space-2)}
 .pbody select,.pbody textarea{width:100%; box-sizing:border-box; font:inherit;
   font-size:13px; padding:6px 8px; border:var(--border); background:transparent; color:inherit}
@@ -184,7 +191,7 @@ details.pset summary:hover{opacity:1}
           </div>
           <p class="fi-small fi-muted opthint" id="promptHint"></p>
           <details class="pset" id="pset">
-            <summary>✎ 自訂提示詞</summary>
+            <summary>自訂提示詞</summary>
             <div class="pbody">
               <select id="pSel" aria-label="提示詞版本"></select>
               <textarea id="pText" spellcheck="false" aria-label="提示詞內容"></textarea>
@@ -194,6 +201,17 @@ details.pset summary:hover{opacity:1}
                 <button class="fi-btn fi-btn--sm fi-btn--ghost" id="pDel">刪除</button>
               </div>
               <p class="fi-small fi-muted" id="pNote"></p>
+              <details class="pset pbak" id="pbak">
+                <summary>備份（匯出／匯入）</summary>
+                <div class="pbody">
+                  <div class="pbtns">
+                    <button class="fi-btn fi-btn--sm" id="pExport">匯出成檔案</button>
+                    <button class="fi-btn fi-btn--sm" id="pImport">從檔案匯入</button>
+                    <input type="file" id="pFile" accept=".json,application/json" hidden>
+                  </div>
+                  <p class="fi-small fi-muted" id="pBakNote">自訂提示詞只存在這個瀏覽器裡。清除瀏覽器資料、換瀏覽器或換電腦前，先匯出一份；到新地方再匯入。</p>
+                </div>
+              </details>
             </div>
           </details>
         </div>
@@ -354,6 +372,44 @@ $('#pDel').addEventListener('click', () => {
   const v = curVer(); if (!v || !confirm(`刪除「${v.name}」？`)) return;
   pv = pv.filter(x => x !== v); pActive = '';
   lsSet('promptVersions', pv); lsSet('promptActive', ''); pLoad(); pChanged();
+});
+
+// 備份：提示詞只存在瀏覽器（localStorage），而且 localhost 和 127.0.0.1 算兩個不同的地方。
+// 匯出成 JSON 檔，換瀏覽器／換電腦／清資料後再匯入。匯入只會「加進來」，不會覆蓋或刪掉現有的。
+$('#pExport').addEventListener('click', () => {
+  if (!pv.length) { $('#pBakNote').textContent = '還沒有自訂提示詞可以匯出（內建的不用備份）。'; return; }
+  const out = { app: 'transcript', kind: 'prompts', version: 1,
+                prompts: pv.map(x => ({ name: x.name, text: x.text })) };
+  const d = new Date(), pad = n => String(n).padStart(2, '0');
+  const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `transcript-提示詞-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}.json`;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+  $('#pBakNote').textContent = `已匯出 ${pv.length} 個版本 ✓（存在瀏覽器的「下載」資料夾）`;
+});
+$('#pImport').addEventListener('click', () => { $('#pFile').value = ''; $('#pFile').click(); });
+$('#pFile').addEventListener('change', async e => {
+  const f = e.target.files && e.target.files[0]; if (!f) return;
+  let list;
+  try {
+    const j = JSON.parse(await f.text());
+    list = Array.isArray(j) ? j : j && j.prompts;
+    if (!Array.isArray(list)) throw new Error();
+  } catch { $('#pBakNote').textContent = '這個檔案不是匯出的提示詞備份，沒有匯入任何東西。'; return; }
+  let added = 0, same = 0;
+  list.forEach((x, i) => {
+    if (!x || typeof x.text !== 'string' || !x.text.trim()) return;
+    const name = String(x.name || '').trim() || `匯入的提示詞 ${i + 1}`;
+    if (pv.some(v => v.name === name && v.text === x.text)) { same++; return; }
+    const taken = pv.some(v => v.name === name);
+    pv.push({ id: 'p' + Date.now() + '_' + i, name: taken ? `${name}（匯入）` : name, text: x.text });
+    added++;
+  });
+  if (added) lsSet('promptVersions', pv);
+  pLoad();
+  $('#pBakNote').textContent = `匯入 ${added} 個版本` + (same ? `，${same} 個已經有了所以略過` : '') + ' ✓';
 });
 
 function syncHint() {
