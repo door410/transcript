@@ -1974,6 +1974,39 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
+    def _from_this_app(self):
+        """請求是不是來自這個工具自己的頁面（或沒有瀏覽器的本機程式）。
+
+        只綁 127.0.0.1 擋得住區網，擋不住「使用者正在瀏覽的其他網站」：
+        任何網頁都能叫瀏覽器對 http://127.0.0.1:8756/api/start 送 POST（純文字
+        內容不會觸發瀏覽器的預檢），於是別的網站可以讓這台電腦去抓任意網址、
+        跑 AI 聽寫，或用 /api/quit 把工具關掉。DNS rebinding（把攻擊者網域
+        指到 127.0.0.1）還能讀到回應內容。
+          Host   必須是 127.0.0.1／localhost 加本伺服器的埠 —— 擋 DNS rebinding
+          Origin 有帶的話必須是本工具自己 —— 擋其他網站；本機程式（例如
+                 _replace_old_instance 用的 urllib）不帶 Origin，照常放行
+        """
+        port = self.server.server_address[1]
+        own = {f"127.0.0.1:{port}", f"localhost:{port}"}
+        if (self.headers.get("Host") or "").strip().lower() not in own:
+            return False
+        origin = self.headers.get("Origin")
+        if origin is not None and origin.strip().lower() not in {"http://" + h for h in own}:
+            return False
+        return True
+
+    def _reject(self):
+        # 先把請求本體讀掉（最多 1 MB）再回 403。沒讀完就關連線的話，Windows 會
+        # 直接重設連線，對方收不到 403，只看到「連線被中止」。更大的就不讀了，直接關。
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+            if 0 < n <= 1048576:
+                self.rfile.read(n)
+        except (ValueError, OSError):
+            pass
+        self.close_connection = True
+        return self._send(403, json.dumps({"error": "forbidden"}))
+
     def _send(self, code, body, ctype="application/json; charset=utf-8"):
         if isinstance(body, str):
             body = body.encode("utf-8")
@@ -1988,6 +2021,8 @@ class Handler(BaseHTTPRequestHandler):
             pass
 
     def do_GET(self):
+        if not self._from_this_app():
+            return self._reject()
         path = urllib.parse.urlparse(self.path).path
         if path in ("/", "/index.html"):
             body = load_asset("ui.html")
@@ -2029,6 +2064,8 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(404, json.dumps({"error": "not found"}))
 
     def do_POST(self):
+        if not self._from_this_app():
+            return self._reject()
         path = urllib.parse.urlparse(self.path).path
 
         if path == "/api/quit":

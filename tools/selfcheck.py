@@ -319,6 +319,50 @@ def t_local_server():
     return f"連接埠 {y.PORT}"
 
 
+def t_block_cross_site():
+    """其他網站不能叫這台電腦的伺服器做事（2026-11-21 體檢 M1）。
+
+    模擬三種瀏覽器會送出的請求：別的網站送來的 POST、DNS rebinding（Host 是
+    別的網域）、還有工具自己頁面的正常請求。前兩種要被擋（403），第三種要通過。
+    直接用 Handler 開一個臨時伺服器（埠由系統挑），不經過 serve()，不碰 8756。
+    """
+    import http.client
+    from http.server import ThreadingHTTPServer
+    import ytscript as y
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), y.Handler)
+    port = srv.server_address[1]
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+
+    def req(method, path, headers, body=None):
+        c = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        try:
+            c.request(method, path, body=body, headers=headers)
+            r = c.getresponse()
+            r.read()
+            return r.status
+        finally:
+            c.close()
+
+    evil = {"Origin": "https://evil.example", "Content-Type": "text/plain;charset=UTF-8"}
+    own = {"Origin": f"http://localhost:{port}", "Content-Type": "application/json"}
+    try:
+        code = req("POST", "/api/start", evil, b'{"url":"not a url"}')
+        expect(code == 403, f"別的網站送來的 /api/start 應該被擋（403），實際 {code}")
+        code = req("POST", "/api/quit", evil, b"{}")
+        expect(code == 403, f"別的網站送來的 /api/quit 應該被擋（403），實際 {code}")
+        code = req("GET", "/api/ping", {"Host": f"evil.example:{port}"})
+        expect(code == 403, f"Host 是別的網域（DNS rebinding）應該被擋（403），實際 {code}")
+        code = req("GET", "/", {})
+        expect(code == 200, f"工具自己的首頁應該打得開，實際 {code}")
+        code = req("POST", "/api/start", own, b'{"url":""}')
+        expect(code == 400, f"工具自己頁面的請求應該照常處理（空白網址回 400），實際 {code}")
+    finally:
+        srv.shutdown()
+        srv.server_close()
+    return "其他網站與 DNS rebinding 都被擋下，自己的頁面照常"
+
+
 def t_device_report():
     """只報告，不判定對錯：這台機器會用哪一條路。"""
     import shutil
@@ -398,6 +442,7 @@ def main():
         ("每一種分析模式", t_every_mode),
         ("介面按鈕與後端一致", t_ui_matches_backend),
         ("本機伺服器與 API", t_local_server),
+        ("其他網站不能操作本機伺服器", t_block_cross_site),
         ("這台機器的硬體路徑", t_device_report),
         ("套件是實測過的版本", t_package_versions),
         ("手機啟動器指向這個資料夾", t_phone_launcher),
