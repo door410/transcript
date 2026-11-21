@@ -12,5 +12,5 @@ lnk.TargetPath       = sh.ExpandEnvironmentStrings("%SystemRoot%") & "\System32\
 lnk.Arguments        = """" & base & "\start.vbs"""
 lnk.WorkingDirectory = base
 lnk.IconLocation     = base & "\icon.ico,0"
-lnk.Description      = "YouTube video to AI-ready transcript"
+lnk.Description      = "Video to AI-ready transcript"
 lnk.Save
