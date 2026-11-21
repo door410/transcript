@@ -300,7 +300,7 @@ if [ "$FAIL" = "0" ]; then
   say "  然後瀏覽器開  127.0.0.1:8756"
   say ""
   say "  桌面圖示與「加入主畫面」：見 安裝指南.md 第 3 節。"
-  say "  之後更新：git -C ~/transcript pull && bash ~/transcript/android/shortcuts.sh"
+  say "  之後更新：git -C ~/transcript pull && pip install --upgrade -r ~/transcript/requirements/core.txt && bash ~/transcript/android/shortcuts.sh"
 else
   say "  有項目未通過（上面標示失敗的那幾行）。"
   say "  完整記錄在 $LOG"
