@@ -1,9 +1,11 @@
 # transcript
 
-> **安裝／更新都只要一行指令** → **[安裝與更新.md](安裝與更新.md)**
+> **三個版本（原版／本機版／快速版）的用途、每個功能與模式，以及電腦、手機的安裝／更新／換版本指令**
+> → **[安裝與更新.md](安裝與更新.md)**
 >
-> - 電腦（PowerShell，安裝與更新同一行）：`irm https://raw.githubusercontent.com/door410/transcript/main/install.ps1 | iex`
-> - 手機安裝（Termux）：`pkg install -y git && git clone https://github.com/door410/transcript ~/transcript && bash ~/transcript/android/install.sh`
+> 這個分支是**快速版（`fast-only`）**，它的指令：
+> - 電腦（PowerShell，安裝、更新、換成這個版本都是同一行）：`irm https://raw.githubusercontent.com/door410/transcript/fast-only/install.ps1 | iex`
+> - 手機第一次安裝（Termux）：`pkg install -y git && git clone -b fast-only https://github.com/door410/transcript ~/transcript && bash ~/transcript/android/install.sh`
 > - 手機更新（Termux）：`git -C ~/transcript pull && pip install --upgrade -r ~/transcript/requirements/core.txt && bash ~/transcript/android/shortcuts.sh`
 >
 > **詳細說明？** 三台裝置（電腦／筆電／Android）的完整步驟見
